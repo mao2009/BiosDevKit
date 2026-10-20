@@ -3,9 +3,9 @@
 //! resolution against attacker-controlled renames needs handle-relative OS APIs;
 //! no such guarantee is claimed. Reject symlinks anywhere in the path.
 use std::collections::HashMap;
-use std::fs::File;
 #[cfg(test)]
 use std::fs;
+use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 
 fn safe_components(path: &Path) -> Result<Vec<std::ffi::OsString>, String> {
