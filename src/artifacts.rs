@@ -78,4 +78,43 @@ mod tests {
         .is_err());
         assert!(verify::<Cursor<Vec<u8>>>(&[entry()], HashMap::new()).is_err());
     }
+    struct Chunked { data: Vec<u8>, position: usize }
+    impl Read for Chunked {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let n = (self.data.len() - self.position).min(1).min(out.len());
+            out[..n].copy_from_slice(&self.data[self.position..self.position + n]);
+            self.position += n;
+            Ok(n)
+        }
+    }
+    struct Broken;
+    impl Read for Broken {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("synthetic read failure"))
+        }
+    }
+    #[test]
+    fn rejects_wrong_size_even_if_hash_is_correct() {
+        let mut wrong = entry();
+        wrong.byte_length = 1;
+        assert!(verify(&[wrong], HashMap::from([("empty".into(), Cursor::new(vec![]))])).is_err());
+    }
+    #[test]
+    fn handles_partial_reads_and_io_failure() {
+        let data = b"abcdef".to_vec();
+        let item = Artifact {
+            logical_name: "chunked".into(),
+            sha256: format!("{:x}", Sha256::digest(&data)),
+            byte_length: data.len() as u64,
+        };
+        assert!(verify(&[item], HashMap::from([("chunked".into(), Chunked { data, position: 0 })])).is_ok());
+        assert!(verify(&[entry()], HashMap::from([("empty".into(), Broken)])).is_err());
+    }
+    #[test]
+    fn rejects_invalid_sha_format() {
+        let mut invalid = entry();
+        invalid.sha256 = "INVALID".into();
+        assert!(verify(&[invalid], HashMap::from([("empty".into(), Cursor::new(vec![]))])).is_err());
+    }
+
 }
