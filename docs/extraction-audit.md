@@ -31,3 +31,7 @@ This document defines a **candidate inventory**, not a completed line-by-line so
 5. Run clean-clone tests before replacing original code; maintain compatibility claims only with measured evidence.
 
 **Status:** Planning-only. No code has been moved from either BIOS repository.
+
+## Audit status and extraction gate
+
+This PR is exclusively a planning inventory. It is **not** evidence that any PCE or MCD source has been audited. No extraction may be approved from this document alone. Before a migration PR, add a reviewed table containing both repositories' pinned commit SHAs, precise source paths, licenses, calling dependencies, baseline tests, target interfaces and clean-clone validation evidence. If any item is missing, record `BLOCKED` instead of asserting reuse. Platform-specific tests remain owned by the source projects.
