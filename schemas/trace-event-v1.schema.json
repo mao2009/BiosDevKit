@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Trace Event v1 (one JSONL line)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sequence",
+    "cpu",
+    "event",
+    "registers"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cpu": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event": {
+      "enum": [
+        "bios_call",
+        "bios_return",
+        "interrupt",
+        "memory_write",
+        "device_event"
+      ]
+    },
+    "registers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "address": {
+      "type": "string"
+    },
+    "details": {
+      "type": "object"
+    }
+  }
+}
