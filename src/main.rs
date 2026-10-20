@@ -68,7 +68,12 @@ mod tests {
 
     #[test]
     fn validate_trace_command_parses() {
-        assert!(matches!(Cli::try_parse_from(["biosdevkit", "validate-trace", "-"]), Ok(Cli { command: Command::ValidateTrace { .. } })));
+        assert!(matches!(
+            Cli::try_parse_from(["biosdevkit", "validate-trace", "-"]),
+            Ok(Cli {
+                command: Command::ValidateTrace { .. }
+            })
+        ));
     }
 
     #[test]
