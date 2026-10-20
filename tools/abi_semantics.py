@@ -11,7 +11,13 @@ def validate_semantics(doc):
     errors = []
     if not isinstance(doc, dict):
         return ["adapter must be object"]
-    widths = REGISTER_WIDTHS.get(doc.get("architecture"))
+    architecture = doc.get("architecture")
+    platform = doc.get("platform")
+    if not isinstance(architecture, str):
+        return ["architecture must be string"]
+    if not isinstance(platform, str):
+        return ["platform must be string"]
+    widths = REGISTER_WIDTHS.get(architecture)
     if widths is None:
         return ["unsupported architecture"]
     pairs = {"pce": "huc6280", "mcd": "m68000"}
