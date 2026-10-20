@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "platform": "synthetic-test-platform",
+  "architecture": "synthetic-8bit",
+  "apis": [
+    {
+      "id": "example.getver",
+      "name": "EXAMPLE_GET_VERSION",
+      "entry_point": "symbol:example_get_version",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "A",
+          "meaning": "synthetic version major",
+          "width_bits": 8
+        }
+      ],
+      "side_effects": [],
+      "platform_extension": {}
+    }
+  ]
+}
