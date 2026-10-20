@@ -70,7 +70,10 @@ pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Differenc
             // so equal payloads elsewhere do not create a false Reordered result.
             let same = |lhs: &[Value], rhs: &[Value]| {
                 lhs.len() == rhs.len()
-                    && lhs.iter().zip(rhs).all(|(l, r)| normalized(l.clone()) == normalized(r.clone()))
+                    && lhs
+                        .iter()
+                        .zip(rhs)
+                        .all(|(l, r)| normalized(l.clone()) == normalized(r.clone()))
             };
             let kind = if b.len() > index && same(&a[index..], &b[index + 1..]) {
                 DifferenceKind::Extra
@@ -160,15 +163,45 @@ mod tests {
     #[test]
     fn insertion_deletion_alignment_with_repeats() {
         let make = |addresses: &[&str]| {
-            addresses.iter().enumerate().map(|(i, addr)| {
-                event("r", "s", "cpu", i as u64 + 1, addr)
-            }).collect::<Vec<_>>().join("\n")
+            addresses
+                .iter()
+                .enumerate()
+                .map(|(i, addr)| event("r", "s", "cpu", i as u64 + 1, addr))
+                .collect::<Vec<_>>()
+                .join("\n")
         };
         let baseline = make(&["A", "B", "C", "D"]);
-        assert_eq!(first_difference(&baseline, &make(&["A", "X", "B", "C", "D"])).unwrap().unwrap().kind, DifferenceKind::Extra);
-        assert_eq!(first_difference(&baseline, &make(&["A", "C", "D"])).unwrap().unwrap().kind, DifferenceKind::Missing);
-        assert_eq!(first_difference(&make(&["A", "B", "B", "C"]), &make(&["A", "B", "B", "B", "C"])).unwrap().unwrap().kind, DifferenceKind::Extra);
-        assert_eq!(first_difference(&baseline, &make(&["A", "C", "B", "D"])).unwrap().unwrap().kind, DifferenceKind::Reordered);
+        assert_eq!(
+            first_difference(&baseline, &make(&["A", "X", "B", "C", "D"]))
+                .unwrap()
+                .unwrap()
+                .kind,
+            DifferenceKind::Extra
+        );
+        assert_eq!(
+            first_difference(&baseline, &make(&["A", "C", "D"]))
+                .unwrap()
+                .unwrap()
+                .kind,
+            DifferenceKind::Missing
+        );
+        assert_eq!(
+            first_difference(
+                &make(&["A", "B", "B", "C"]),
+                &make(&["A", "B", "B", "B", "C"])
+            )
+            .unwrap()
+            .unwrap()
+            .kind,
+            DifferenceKind::Extra
+        );
+        assert_eq!(
+            first_difference(&baseline, &make(&["A", "C", "B", "D"]))
+                .unwrap()
+                .unwrap()
+                .kind,
+            DifferenceKind::Reordered
+        );
     }
 
     #[test]
