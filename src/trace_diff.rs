@@ -235,10 +235,7 @@ mod tests {
                 .kind,
             DifferenceKind::Missing
         );
-        assert!(
-            first_difference(&make(&["A", "B", "C"]), &make(&["A", "X", "Y", "C"]))
-                .is_err()
-        );
+        assert!(first_difference(&make(&["A", "B", "C"]), &make(&["A", "X", "Y", "C"])).is_err());
     }
 
     #[test]
