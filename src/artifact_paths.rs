@@ -107,6 +107,34 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn rejects_directory_and_missing_file() {
+        let root = tmp();
+        fs::create_dir(root.join("dir")).unwrap();
+        let map = HashMap::from([("id".into(), PathBuf::from("dir"))]);
+        assert!(open_mapped(&root, &map, "id").is_err());
+        assert!(open_mapped(&root, &map, "unmapped").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_root_and_intermediate_symlinks() {
+        use std::os::unix::fs::symlink;
+        let root = tmp();
+        let alias = root.with_extension("alias");
+        fs::create_dir(root.join("inside")).unwrap();
+        fs::write(root.join("inside/data"), b"data").unwrap();
+        symlink(&root, &alias).unwrap();
+        let mapping = HashMap::from([("id".into(), PathBuf::from("inside/data"))]);
+        assert!(open_mapped(&alias, &mapping, "id").is_err());
+        symlink(root.join("inside"), root.join("other")).unwrap();
+        let submap = HashMap::from([("id".into(), PathBuf::from("other/data"))]);
+        assert!(open_mapped(&root, &submap, "id").is_err());
+        fs::remove_file(alias).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn symlink_is_rejected() {
