@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "test_id": "synthetic.smoke",
+  "platform": "synthetic-test-platform",
+  "result": "PASS",
+  "source_revision": "synthetic-fixture",
+  "observations": [
+    {
+      "key": "expected",
+      "value": "42"
+    },
+    {
+      "key": "actual",
+      "value": "42"
+    }
+  ]
+}
