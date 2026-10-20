@@ -1,10 +1,18 @@
 //! Validates JSONL trace events and per-producer sequence monotonicity.
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
+
 pub fn validate_jsonl(input: &str) -> Result<usize, String> {
+    validate_reader(BufReader::new(input.as_bytes()))
+}
+
+/// Validate one JSONL event at a time, without buffering the entire input.
+pub fn validate_reader<R: BufRead>(input: R) -> Result<usize, String> {
     let mut last: HashMap<(String, String), u64> = HashMap::new();
     let mut count = 0usize;
     for (line_index, line) in input.lines().enumerate() {
         let line_number = line_index + 1;
+        let line = line.map_err(|e| format!("line {line_number}: read error: {e}"))?;
         if line.trim().is_empty() {
             return Err(format!("line {line_number}: blank event"));
         }
@@ -64,8 +72,8 @@ pub fn validate_jsonl(input: &str) -> Result<usize, String> {
             .ok_or_else(|| format!("line {line_number}: invalid sequence"))?;
         if last.get(&key).is_some_and(|prior| seq <= *prior) {
             return Err(format!(
-                "line {line_number}: duplicate or out of order stream {}",
-                key.1
+                "line {line_number}: duplicate or out of order run {} stream {}",
+                key.0, key.1
             ));
         }
         last.insert(key, seq);
@@ -133,5 +141,22 @@ mod schema_conformance_tests {
         assert_eq!(validate_jsonl(&input), Ok(3));
         let reverse = format!("{third}\n{first}\n");
         assert!(validate_jsonl(&reverse).is_err());
+    }
+}
+
+#[cfg(test)]
+mod reader_tests {
+    use super::*;
+    use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn reader_matches_string_validation() {
+        let fixture = include_str!("../examples/trace.synthetic.jsonl");
+        assert_eq!(validate_reader(BufReader::new(Cursor::new(fixture))), validate_jsonl(fixture));
+    }
+
+    #[test]
+    fn reader_rejects_corrupt_utf8() {
+        assert!(validate_reader(BufReader::new(Cursor::new(vec![0xff, 0x0a]))).is_err());
     }
 }
