@@ -40,4 +40,15 @@ for platform in ("pce", "mcd"):
         fn(doc)
         assert v.is_valid(doc), f"{platform}: structural schema unexpectedly rejected {name}"
         assert validate_semantics(doc), f"{platform}: semantics accepted {name}"
+# The semantic entry point must return diagnostics, never TypeError, even if
+# a future caller bypasses JSON Schema validation.
+for malformed in (
+    None, [], "not-an-adapter",
+    {"architecture": "huc6280", "platform": "pce", "registers": None},
+    {"architecture": "huc6280", "platform": "pce", "registers": [{"logical": [], "physical": "A", "width_bits": 8}]},
+    {"architecture": "huc6280", "platform": "pce", "registers": [{"logical": "a", "physical": [], "width_bits": 8}]},
+    {"architecture": "huc6280", "platform": "pce", "registers": [], "flags": {"preserved": [[]], "clobbered": []}},
+    {"architecture": "m68000", "platform": "mcd", "registers": [], "flags": {"preserved": "I", "clobbered": []}},
+):
+    assert validate_semantics(malformed), f"accepted malformed semantic input: {malformed!r}"
 print("synthetic adapter schema and semantic negatives PASS")
