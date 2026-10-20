@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "test_id": "synthetic.provenance",
+  "platform": "synthetic",
+  "result": "BLOCKED",
+  "reason": "Synthetic runner: no actual emulator execution",
+  "source_revision": "synthetic-source-revision",
+  "observations": [],
+  "run_provenance": {
+    "runner_version": "synthetic-runner/0",
+    "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "environment": {
+      "os": "synthetic-os",
+      "arch": "synthetic-arch"
+    },
+    "started_at": "2026-01-01T00:00:00Z",
+    "finished_at": "2026-01-01T00:00:01Z",
+    "artifacts": [
+      "synthetic://fixture"
+    ],
+    "traces": []
+  }
+}
