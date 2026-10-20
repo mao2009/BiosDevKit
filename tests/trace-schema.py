@@ -17,3 +17,25 @@ for record in records:
     wrong["schema_version"] = -1
     assert not validator.is_valid(wrong), "invalid schema version was accepted"
 print("validated", len(records), "synthetic fixture record(s)")
+
+# JSON Schema validates an event; stream invariants are checked separately.
+def validate_stream(events):
+    if not events:
+        raise ValueError("empty trace stream")
+    last = {}
+    for event in events:
+        validator.validate(event)
+        key = (event["run_id"], event["stream_id"])
+        seq = event["sequence"]
+        if key in last and seq <= last[key]:
+            raise ValueError("non-increasing sequence")
+        last[key] = seq
+
+validate_stream(records)
+for bad in ([records[0], records[0]], list(reversed(records))):
+    try:
+        validate_stream(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("reordered/duplicate events accepted")
