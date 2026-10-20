@@ -1,7 +1,11 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "biosdevkit", version, about = "BIOS development and compatibility testing toolkit")]
+#[command(
+    name = "biosdevkit",
+    version,
+    about = "BIOS development and compatibility testing toolkit"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -35,6 +39,11 @@ mod tests {
 
     #[test]
     fn about_command_parses() {
-        assert!(matches!(Cli::try_parse_from(["biosdevkit", "about"]), Ok(Cli { command: Command::About })));
+        assert!(matches!(
+            Cli::try_parse_from(["biosdevkit", "about"]),
+            Ok(Cli {
+                command: Command::About
+            })
+        ));
     }
 }
