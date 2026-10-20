@@ -74,7 +74,8 @@
       "properties": {
         "runner_version": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "\\S"
         },
         "source_commit": {
           "type": "string",
