@@ -1,2 +1,2 @@
-{"schema_version":1,"sequence":0,"cpu":"master-sh2","event":"bios_call","registers":{"r0":"0x00000000"},"address":"symbol:synthetic_api"}
-{"schema_version":1,"sequence":1,"cpu":"slave-sh2","event":"device_event","registers":{},"details":{"name":"synthetic_event"}}
+{"schema_version":1,"sequence":0,"cpu":"master-sh2","event":"bios_call","registers":{"r0":"0x00000000"},"address":"symbol:synthetic_api","run_id":"synthetic-run","stream_id":"synthetic-capture"}
+{"schema_version":1,"sequence":1,"cpu":"slave-sh2","event":"device_event","registers":{},"details":{"name":"synthetic_event"},"run_id":"synthetic-run","stream_id":"synthetic-capture"}
