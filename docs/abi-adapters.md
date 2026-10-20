@@ -21,3 +21,20 @@ synthetic sequence or silently coerce an SH-2 mapping into HuC6280/m68k.
 
 Validate fixtures: `python3 tests/abi-adapter-schema.py`. This PR
 does not connect emulators or expose a hardware execution API.
+
+## Synthetic semantic validation boundary
+
+Run `python3 tests/abi-adapter-schema.py` to execute both JSON Schema checks and
+`tools/abi_semantics.py` consistency checks. The latter rejects unknown or
+CPU-incompatible physical register names, incorrect declared widths, duplicate
+logical register names, and flags claimed as both preserved and clobbered.
+The current register tables cover the explicit HuC6280 A/X/Y/P/S/PC and
+M68000 D0–D7/A0–A7/PC/SR names. They are intentionally conservative:
+composite registers, partial widths, register aliases and CPU-specific flag
+names must be specified and reviewed before use; do not bypass errors by
+inventing mappings. Structural JSON Schema alone does **not** reject these
+semantic contradictions.
+
+Stack discipline and return mechanism strings remain **declarations** only.
+No actual reference BIOS or emulator was measured by this PR, and therefore
+this adapter cannot be used to claim a verified calling convention.
