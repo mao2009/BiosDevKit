@@ -65,23 +65,26 @@ pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Differenc
             {
                 continue;
             }
-            let kind = match (&x, &y) {
-                (Some(_), None) => DifferenceKind::Missing,
-                (None, Some(_)) => DifferenceKind::Extra,
-                (Some(xv), Some(yv)) => {
-                    if a.iter()
-                        .skip(index + 1)
-                        .any(|z| normalized(z.clone()) == normalized(yv.clone()))
-                        || b.iter()
-                            .skip(index + 1)
-                            .any(|z| normalized(z.clone()) == normalized(xv.clone()))
-                    {
-                        DifferenceKind::Reordered
-                    } else {
-                        DifferenceKind::Changed
-                    }
-                }
-                (None, None) => unreachable!(),
+            // Exact single insert/delete alignment takes precedence over reorder.
+            // Compare the entire remaining suffix, including repeated events,
+            // so equal payloads elsewhere do not create a false Reordered result.
+            let same = |lhs: &[Value], rhs: &[Value]| {
+                lhs.len() == rhs.len()
+                    && lhs.iter().zip(rhs).all(|(l, r)| normalized(l.clone()) == normalized(r.clone()))
+            };
+            let kind = if b.len() > index && same(&a[index..], &b[index + 1..]) {
+                DifferenceKind::Extra
+            } else if a.len() > index && same(&a[index + 1..], &b[index..]) {
+                DifferenceKind::Missing
+            } else if index + 1 < a.len()
+                && index + 1 < b.len()
+                && normalized(a[index].clone()) == normalized(b[index + 1].clone())
+                && normalized(a[index + 1].clone()) == normalized(b[index].clone())
+                && same(&a[index + 2..], &b[index + 2..])
+            {
+                DifferenceKind::Reordered
+            } else {
+                DifferenceKind::Changed
             };
             return Ok(Some(Difference {
                 kind,
@@ -152,6 +155,20 @@ mod tests {
             first_difference(&a, &reordered).unwrap().unwrap().kind,
             DifferenceKind::Reordered
         );
+    }
+
+    #[test]
+    fn insertion_deletion_alignment_with_repeats() {
+        let make = |addresses: &[&str]| {
+            addresses.iter().enumerate().map(|(i, addr)| {
+                event("r", "s", "cpu", i as u64 + 1, addr)
+            }).collect::<Vec<_>>().join("\\n")
+        };
+        let baseline = make(&["A", "B", "C", "D"]);
+        assert_eq!(first_difference(&baseline, &make(&["A", "X", "B", "C", "D"])).unwrap().unwrap().kind, DifferenceKind::Extra);
+        assert_eq!(first_difference(&baseline, &make(&["A", "C", "D"])).unwrap().unwrap().kind, DifferenceKind::Missing);
+        assert_eq!(first_difference(&make(&["A", "B", "B", "C"]), &make(&["A", "B", "B", "B", "C"])).unwrap().unwrap().kind, DifferenceKind::Extra);
+        assert_eq!(first_difference(&baseline, &make(&["A", "C", "B", "D"])).unwrap().unwrap().kind, DifferenceKind::Reordered);
     }
 
     #[test]
