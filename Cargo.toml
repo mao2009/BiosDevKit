@@ -1,0 +1,11 @@
+[package]
+name = "biosdevkit"
+version = "0.1.0"
+edition = "2021"
+description = "Cross-platform BIOS development and compatibility testing toolkit"
+license = "MIT"
+repository = "https://github.com/mao2009/BiosDevKit"
+rust-version = "1.80"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
