@@ -6,6 +6,10 @@ pub fn validate(document: &serde_json::Value) -> Result<usize, String> {
     if obj.get("schema_version").and_then(|v| v.as_u64()) != Some(1) {
         return Err("unsupported schema_version".into());
     }
+    reject_extra(obj, &["schema_version", "platform", "architecture", "apis"], "contract")?;
+    if obj.get("architecture").is_some_and(|v| v.as_str().is_none_or(|s| s.is_empty())) {
+        return Err("architecture must be nonempty string".into());
+    }
     let platform = obj
         .get("platform")
         .and_then(|v| v.as_str())
@@ -22,6 +26,8 @@ pub fn validate(document: &serde_json::Value) -> Result<usize, String> {
         let api = api
             .as_object()
             .ok_or_else(|| format!("apis[{index}] must be object"))?;
+        reject_extra(api, &["id", "name", "entry_point", "inputs", "outputs", "side_effects", "notes", "platform_extension"], "api")?;
+        if api.get("notes").is_some_and(|v| !v.is_string()) || api.get("platform_extension").is_some_and(|v| !v.is_object()) { return Err("invalid notes or platform_extension".into()); }
         for key in ["id", "name", "entry_point"] {
             if api
                 .get(key)
@@ -42,6 +48,7 @@ pub fn validate(document: &serde_json::Value) -> Result<usize, String> {
                 .ok_or_else(|| format!("apis[{index}].{key} must be array"))?;
             for reg in regs {
                 let r = reg.as_object().ok_or("register must be object")?;
+                reject_extra(r, &["name", "meaning", "width_bits"], "register")?;
                 for name in ["name", "meaning"] {
                     if r.get(name)
                         .and_then(|v| v.as_str())
@@ -92,5 +99,32 @@ mod tests {
         x["apis"][0]["outputs"][0]["width_bits"] = serde_json::json!(8);
         x["apis"][0]["inputs"] = serde_json::json!("not-array");
         assert!(validate(&x).is_err());
+    }
+}
+
+fn reject_extra(obj: &serde_json::Map<String, serde_json::Value>, allowed: &[&str], context: &str) -> Result<(), String> {
+    for name in obj.keys() {
+        if !allowed.contains(&name.as_str()) { return Err(format!("{context}: unknown field {name}")); }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod conformance_tests {
+    use super::*;
+    #[test]
+    fn rejects_schema_invalid_fields() {
+        let fixture = include_str!("../examples/api-contract.synthetic.json");
+        for (pointer, bad) in [("", serde_json::json!(true)), ("/apis/0", serde_json::json!(true)), ("/apis/0/outputs/0", serde_json::json!(true))] {
+            let mut doc: serde_json::Value = serde_json::from_str(fixture).unwrap();
+            doc.pointer_mut(pointer).unwrap().as_object_mut().unwrap().insert("unknown".into(), bad);
+            assert!(validate(&doc).is_err(), "accepted extra key at {pointer}");
+        }
+        let mut doc: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        doc["apis"][0]["platform_extension"] = serde_json::json!(42);
+        assert!(validate(&doc).is_err());
+        let mut doc: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        doc["architecture"] = serde_json::json!(33);
+        assert!(validate(&doc).is_err());
     }
 }
