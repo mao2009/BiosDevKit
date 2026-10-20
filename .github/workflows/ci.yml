@@ -21,6 +21,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Generate lockfile evidence (temporary)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          cargo generate-lockfile
+          echo 'BEGIN_LOCK_BASE64'
+          base64 -w 0 Cargo.lock
+          echo
+          echo 'END_LOCK_BASE64'
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
