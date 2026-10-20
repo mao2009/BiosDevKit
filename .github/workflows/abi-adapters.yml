@@ -6,6 +6,7 @@ on:
       - 'examples/abi-adapter-pce.synthetic.json'
       - 'examples/abi-adapter-mcd.synthetic.json'
       - 'tests/abi-adapter-schema.py'
+      - 'tools/abi_semantics.py'
       - 'docs/abi-adapters.md'
       - '.github/workflows/abi-adapters.yml'
   push:
