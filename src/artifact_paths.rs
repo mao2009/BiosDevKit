@@ -142,15 +142,18 @@ pub fn open_mapped(
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn tmp() -> PathBuf {
         let t = std::env::temp_dir().join(format!(
-            "bdk-resolver-{}-{}",
+            "bdk-resolver-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            TEMP_COUNTER.fetch_add(1, AtomicOrdering::Relaxed)
         ));
         fs::create_dir(&t).unwrap();
         t
