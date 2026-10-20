@@ -1,7 +1,7 @@
-//! Resolve opaque artifact IDs through an explicit mapping under a trusted root.
-//! This is for a filesystem NOT concurrently writable by an adversary. Race-safe
-//! resolution against attacker-controlled renames needs handle-relative OS APIs;
-//! no such guarantee is claimed. Reject symlinks anywhere in the path.
+//! Resolve opaque artifact IDs through an explicit mapping.
+//! Linux x86_64/aarch64 uses openat2 handle-relative, no-symlink traversal;
+//! other supported build platforms return an explicit unsupported error.
+//! Path containment does not authenticate file contents or reject hardlinks.
 use std::collections::HashMap;
 #[cfg(test)]
 use std::fs;
@@ -111,8 +111,8 @@ fn linux_open(root: &Path, pieces: &[std::ffi::OsString]) -> Result<File, String
 }
 
 /// Resolve a declared logical identifier, never interpreting the ID as a path.
-/// Caller must ensure the root and its directory contents cannot be modified
-/// concurrently by untrusted processes while resolving/opening.
+/// Linux openat2 confines lookup to the opened root during concurrent path
+/// renames; callers must separately trust file contents and authorized writers.
 pub fn open_mapped(
     root: &Path,
     mapping: &HashMap<String, PathBuf>,
@@ -207,6 +207,47 @@ mod tests {
         assert!(open_mapped(&root, &submap, "id").is_err());
         fs::remove_file(alias).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn concurrent_symlink_swap_never_reads_outside_root() {
+        use std::io::Read;
+        use std::os::unix::fs::symlink;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let root = tmp();
+        let outside = tmp();
+        fs::create_dir(root.join("safe")).unwrap();
+        fs::write(root.join("safe/data"), b"inside").unwrap();
+        fs::write(outside.join("data"), b"OUTSID").unwrap();
+        let running = Arc::new(AtomicBool::new(true));
+        let active = Arc::clone(&running);
+        let root_clone = root.clone();
+        let outside_clone = outside.clone();
+        let attacker = std::thread::spawn(move || {
+            while active.load(Ordering::Relaxed) {
+                let path = root_clone.join("swap");
+                let _ = fs::remove_file(&path);
+                let _ = fs::remove_dir_all(&path);
+                let _ = symlink(&outside_clone, &path);
+                let _ = fs::remove_file(&path);
+                let _ = fs::create_dir(&path);
+                let _ = fs::write(path.join("data"), b"inside");
+            }
+        });
+        let mapping = HashMap::from([("id".into(), PathBuf::from("swap/data"))]);
+        for _ in 0..1000 {
+            if let Ok(mut file) = open_mapped(&root, &mapping, "id") {
+                let mut content = Vec::new();
+                file.read_to_end(&mut content).unwrap();
+                assert_eq!(content, b"inside");
+            }
+        }
+        running.store(false, Ordering::Relaxed);
+        attacker.join().unwrap();
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside).unwrap();
     }
 
     #[cfg(unix)]
