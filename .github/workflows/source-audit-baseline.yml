@@ -14,7 +14,7 @@ jobs:
         include:
           - name: pce
             repository: mao2009/oss-pce-cd-bios
-            revision: d95ae8c30eddd433602361b619894cb3d5ad2f1b
+            revision: 784b885de03515f25a2d9af69621d05ccfff2b94
           - name: mcd
             repository: mao2009/oss-mcd-bios
             revision: 94ce0c23c6b53f2bacac0d8b9051d5f1abea33f5
