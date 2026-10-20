@@ -43,8 +43,7 @@ pub fn open_mapped(
     let mut cursor = root.to_path_buf();
     for (idx, piece) in pieces.iter().enumerate() {
         cursor.push(piece);
-        let md = fs::symlink_metadata(&cursor)
-            .map_err(|e| format!("{}: {e}", cursor.display()))?;
+        let md = fs::symlink_metadata(&cursor).map_err(|e| format!("{}: {e}", cursor.display()))?;
         if md.file_type().is_symlink() {
             return Err("symlink component rejected".into());
         }
