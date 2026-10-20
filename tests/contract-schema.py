@@ -17,3 +17,20 @@ for record in records:
     wrong["schema_version"] = -1
     assert not validator.is_valid(wrong), "invalid schema version was accepted"
 print("validated", len(records), "synthetic fixture record(s)")
+
+# Semantic validation: IDs must uniquely identify a contract within this platform.
+def validate_contract(document):
+    validator.validate(document)
+    ids = [api["id"] for api in document["apis"]]
+    if len(ids) != len(set(ids)):
+        raise ValueError("duplicate API id")
+
+validate_contract(records[0])
+duplicate = json.loads(json.dumps(records[0]))
+duplicate["apis"].append(dict(duplicate["apis"][0]))
+try:
+    validate_contract(duplicate)
+except ValueError:
+    pass
+else:
+    raise AssertionError("duplicate API id accepted")
