@@ -17,6 +17,7 @@ for pointer, replacement in [
     ("/schema_version", 1),
     ("/run_provenance/source_commit", "synthetic"),
     ("/run_provenance/runner_version", ""),
+    ("/run_provenance/runner_version", "   "),
     ("/run_provenance/environment", []),
     ("/run_provenance/traces", ["duplicate", "duplicate"]),
     ("/run_provenance/started_at", "not-a-date"),
