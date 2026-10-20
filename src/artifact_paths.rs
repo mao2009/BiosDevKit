@@ -141,8 +141,8 @@ pub fn open_mapped(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    use std::time::{SystemTime, UNIX_EPOCH};
     static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn tmp() -> PathBuf {
