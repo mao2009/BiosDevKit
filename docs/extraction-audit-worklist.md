@@ -59,3 +59,12 @@ To qualify as clean-clone regression evidence, record each exact commit hash, ch
 4. Keep PCE Geargrafx checks, CI artifact-signing/upload policy and MCD ROM-specific security claims in origin repos. A future migration requires a *new* scoped Issue/PR and explicit approval.
 
 **Unresolved gate:** this documentation review cannot certify baseline tests because neither pinned repository was checked out and executed. Consequently Issue #19 remains incomplete, even though source inventory, caller examples, dependencies, license context and gate commands are now documented.
+
+## GitHub Actions pinned clean-checkout baseline (2026-10-20)
+
+Read-only, credential-free source checkout and `python3 -I -B -m unittest discover -s tests/host -v` were started by [source audit workflow run 39423094620](https://github.com/mao2009/BiosDevKit/actions/runs/39423094620). Each matrix job uses the exact source SHA listed in the primary-source inventory rather than a moving branch. The workflow is part of this PR and does not extract or publish firmware.
+
+- **MCD:** [pinned host job 118628738201](https://github.com/mao2009/BiosDevKit/actions/runs/39423094620/job/118628738201): **PASS**, 34 tests, exit success. Covers MCD host tests; does **not** prove ROM/emulator compatibility.
+- **PCE:** [pinned host job 118628738616](https://github.com/mao2009/BiosDevKit/actions/runs/39423094620/job/118628738616): **RUNNING at documentation update**; no PASS claimed until job completion. Real Geargrafx and required cc65 integration are outside this host-only baseline.
+
+This pinned host-baseline workflow is an additional regression gate, not a substitute for the full product-specific integration gates or caller-by-caller equivalence testing. Until complete, migration remains **BLOCKED**.
