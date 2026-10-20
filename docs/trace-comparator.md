@@ -7,8 +7,7 @@ input order. `sequence` and `run_id` are ignored for payload equivalence;
 the run identifier is nevertheless used to pair lanes, so callers must first
 normalize run IDs across captures or comparison yields missing/extra lanes.
 
-Classification: absent expected lane/index = extra, absent actual = missing;
-cross-position matching in the same lane = reordered, otherwise changed.
+Classification: exact single-event insertion/deletion alignment across the\nremaining suffix = extra/missing (also with duplicated payloads); adjacent\npair swap with identical remaining suffix = reordered; otherwise changed.\nThis conservative first-difference comparator does not implement a general\nedit script for multiple simultaneous insertions or deletions.
 The first mismatch is deterministic by sorted lane key, then input index.
 This is a conservative heuristic, not full edit-distance alignment and not
 evidence of causality across CPU streams. Shared counters across CPUs do not
