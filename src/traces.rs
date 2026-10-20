@@ -17,7 +17,7 @@ pub fn validate_reader<R: BufRead>(input: R) -> Result<usize, String> {
             return Err(format!("line {line_number}: blank event"));
         }
         let v: serde_json::Value =
-            serde_json::from_str(line).map_err(|e| format!("line {line_number}: {e}"))?;
+            serde_json::from_str(&line).map_err(|e| format!("line {line_number}: {e}"))?;
         let obj = v
             .as_object()
             .ok_or_else(|| format!("line {line_number}: event must be object"))?;
