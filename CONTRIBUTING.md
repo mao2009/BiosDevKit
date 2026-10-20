@@ -7,9 +7,9 @@ Please open an Issue before substantive changes. Follow **one focused Issue per 
 Run:
 ```sh
 cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-cargo run -- --help
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+cargo run --locked -- --help
 ```
 
 Core components must stay architecture-neutral. CPU, BIOS ABI and emulator-specific logic belongs in platform adapters.
