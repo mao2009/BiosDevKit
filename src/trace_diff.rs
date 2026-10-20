@@ -65,29 +65,36 @@ pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Differenc
             {
                 continue;
             }
-            // Exact single insert/delete alignment takes precedence over reorder.
-            // Compare the entire remaining suffix, including repeated events,
-            // so equal payloads elsewhere do not create a false Reordered result.
-            let same = |lhs: &[Value], rhs: &[Value]| {
-                lhs.len() == rhs.len()
-                    && lhs
-                        .iter()
-                        .zip(rhs)
-                        .all(|(l, r)| normalized(l.clone()) == normalized(r.clone()))
+            // Compare normalized suffixes as ordered subsequences. This handles
+            // multiple insertions/deletions without mistaking them for reorder.
+            let na: Vec<_> = a[index..].iter().cloned().map(normalized).collect();
+            let nb: Vec<_> = b[index..].iter().cloned().map(normalized).collect();
+            let subsequence = |short: &[Value], long: &[Value]| {
+                let mut matched = 0usize;
+                for value in long {
+                    if matched < short.len() && short[matched] == *value {
+                        matched += 1;
+                    }
+                }
+                matched == short.len()
             };
-            let kind = if b.len() > index && same(&a[index..], &b[index + 1..]) {
+            let kind = if na.len() < nb.len() && subsequence(&na, &nb) {
                 DifferenceKind::Extra
-            } else if a.len() > index && same(&a[index + 1..], &b[index..]) {
+            } else if nb.len() < na.len() && subsequence(&nb, &na) {
                 DifferenceKind::Missing
-            } else if index + 1 < a.len()
-                && index + 1 < b.len()
-                && normalized(a[index].clone()) == normalized(b[index + 1].clone())
-                && normalized(a[index + 1].clone()) == normalized(b[index].clone())
-                && same(&a[index + 2..], &b[index + 2..])
+            } else if na.len() >= 2
+                && nb.len() == na.len()
+                && na[0] == nb[1]
+                && na[1] == nb[0]
+                && na[2..] == nb[2..]
             {
                 DifferenceKind::Reordered
-            } else {
+            } else if na.len() == nb.len() {
                 DifferenceKind::Changed
+            } else {
+                return Err(format!(
+                    "ambiguous trace alignment in run {run} stream {stream} cpu {cpu} at index {index}"
+                ));
             };
             return Ok(Some(Difference {
                 kind,
@@ -201,6 +208,36 @@ mod tests {
                 .unwrap()
                 .kind,
             DifferenceKind::Reordered
+        );
+    }
+
+    #[test]
+    fn multiple_insertions_and_deletions() {
+        let make = |addresses: &[&str]| {
+            addresses
+                .iter()
+                .enumerate()
+                .map(|(i, addr)| event("r", "s", "cpu", i as u64 + 1, addr))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert_eq!(
+            first_difference(&make(&["A", "B", "C"]), &make(&["A", "X", "Y", "B", "C"]))
+                .unwrap()
+                .unwrap()
+                .kind,
+            DifferenceKind::Extra
+        );
+        assert_eq!(
+            first_difference(&make(&["A", "B", "C", "D"]), &make(&["A", "D"]))
+                .unwrap()
+                .unwrap()
+                .kind,
+            DifferenceKind::Missing
+        );
+        assert!(
+            first_difference(&make(&["A", "B", "C"]), &make(&["A", "X", "Y", "C"]))
+                .is_err()
         );
     }
 
