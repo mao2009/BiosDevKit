@@ -3,7 +3,9 @@
 //! resolution against attacker-controlled renames needs handle-relative OS APIs;
 //! no such guarantee is claimed. Reject symlinks anywhere in the path.
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs::File;
+#[cfg(test)]
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 fn safe_components(path: &Path) -> Result<Vec<std::ffi::OsString>, String> {
@@ -127,7 +129,7 @@ pub fn open_mapped(
     // platforms fail closed instead of returning a path-race-vulnerable handle.
     #[cfg(target_os = "linux")]
     {
-        return linux_open(root, &pieces);
+        linux_open(root, &pieces)
     }
     #[cfg(not(target_os = "linux"))]
     {
