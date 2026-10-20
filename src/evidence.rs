@@ -78,4 +78,26 @@ mod tests {
         }])
         .is_err());
     }
+    #[test]
+    fn nonpass_statuses_require_explanation() {
+        for status in [Status::Fail, Status::Blocked, Status::Skip] {
+            for reason in [None, Some(""), Some("  ")] {
+                assert!(aggregate(&[Record { status, reason }]).is_err());
+            }
+            assert_eq!(aggregate(&[Record { status, reason: Some("reason") }]).unwrap().total, 1);
+        }
+    }
+    #[test]
+    fn summary_counts_partition_total() {
+        let records = [
+            Record { status: Status::Pass, reason: None },
+            Record { status: Status::Pass, reason: None },
+            Record { status: Status::Skip, reason: Some("excluded") },
+            Record { status: Status::Blocked, reason: Some("unavailable") },
+        ];
+        let s = aggregate(&records).unwrap();
+        assert_eq!(s.total, s.pass + s.fail + s.blocked + s.skip);
+        assert_eq!(s.pass, 2);
+    }
+
 }
