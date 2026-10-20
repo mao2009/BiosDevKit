@@ -2,7 +2,7 @@
 //! This is for a filesystem NOT concurrently writable by an adversary. Race-safe
 //! resolution against attacker-controlled renames needs handle-relative OS APIs;
 //! no such guarantee is claimed. Reject symlinks anywhere in the path.
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Component, Path, PathBuf};
 
