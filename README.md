@@ -22,7 +22,7 @@ This project does **not** bundle proprietary BIOS images, commercial game ROMs, 
 
 ## Contributing
 
-See upcoming CONTRIBUTING.md. Prefer one focused issue and one draft PR per change; test and review before merging.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Prefer one focused issue and one draft PR per change; test and review before merging.
 
 ## Status
 
