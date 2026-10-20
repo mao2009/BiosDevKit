@@ -34,3 +34,18 @@ except ValueError:
     pass
 else:
     raise AssertionError("duplicate API id accepted")
+
+def validate_unique_api_ids(document):
+    ids = [api["id"] for api in document["apis"]]
+    if len(ids) != len(set(ids)):
+        raise ValueError("duplicate API id")
+
+validate_unique_api_ids(records[0])
+duplicate = json.loads(json.dumps(records[0]))
+duplicate["apis"].append(dict(duplicate["apis"][0]))
+try:
+    validate_unique_api_ids(duplicate)
+except ValueError:
+    pass
+else:
+    raise AssertionError("duplicate API id accepted")
