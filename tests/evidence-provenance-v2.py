@@ -11,11 +11,14 @@ Draft202012Validator.check_schema(schema)
 validator = Draft202012Validator(schema, format_checker=FormatChecker())
 valid = json.loads((ROOT / "examples/test-evidence-v2.synthetic.json").read_text())
 validator.validate(valid)
+assert "date-time" in FormatChecker().checkers, "RFC3339 format validation unavailable"
 
 for pointer, replacement in [
     ("/schema_version", 1),
     ("/run_provenance/source_commit", "synthetic"),
     ("/run_provenance/runner_version", ""),
+    ("/run_provenance/environment", []),
+    ("/run_provenance/traces", ["duplicate", "duplicate"]),
     ("/run_provenance/started_at", "not-a-date"),
     ("/run_provenance/artifacts", ["duplicated", "duplicated"]),
     ("/result", "SUCCESS"),
@@ -32,6 +35,15 @@ for missing in ["runner_version", "source_commit", "environment", "started_at", 
     doc = copy.deepcopy(valid)
     del doc["run_provenance"][missing]
     assert not validator.is_valid(doc), missing
+for value in ([], None, "text", 2):
+    assert not validator.is_valid(value), "non-object unexpectedly valid"
+for key in ("test_id", "result", "observations", "run_provenance"):
+    doc = copy.deepcopy(valid)
+    del doc[key]
+    assert not validator.is_valid(doc), key
+doc = copy.deepcopy(valid)
+doc["unexpected"] = "field"
+assert not validator.is_valid(doc)
 doc = copy.deepcopy(valid)
 doc["run_provenance"]["unknown"] = True
 assert not validator.is_valid(doc)
