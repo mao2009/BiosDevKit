@@ -17,3 +17,11 @@ for record in records:
     wrong["schema_version"] = -1
     assert not validator.is_valid(wrong), "invalid schema version was accepted"
 print("validated", len(records), "synthetic fixture record(s)")
+
+for status in ("FAIL", "BLOCKED", "SKIP"):
+    for reason in (None, "", "   "):
+        invalid = dict(records[0], result=status)
+        if reason is not None:
+            invalid["reason"] = reason
+        assert not validator.is_valid(invalid), (status, reason)
+    validator.validate(dict(records[0], result=status, reason="documented explanation"))
