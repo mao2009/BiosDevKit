@@ -9,6 +9,8 @@ pub struct Artifact {
     pub sha256: String,
     pub byte_length: u64,
 }
+/// Extra undeclared streams are ignored; only manifest entries are verified.
+/// Logical names are opaque identifiers, not filesystem paths.
 pub fn verify<R: Read>(
     manifest: &[Artifact],
     mut streams: HashMap<String, R>,
