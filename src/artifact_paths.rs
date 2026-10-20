@@ -46,8 +46,8 @@ fn linux_open(root: &Path, pieces: &[std::ffi::OsString]) -> Result<File, String
     const RESOLVE_NO_SYMLINKS: u64 = 0x04;
     const RESOLVE_BENEATH: u64 = 0x08;
 
-    let root_path = CString::new(root.as_os_str().as_bytes())
-        .map_err(|_| "root contains NUL".to_string())?;
+    let root_path =
+        CString::new(root.as_os_str().as_bytes()).map_err(|_| "root contains NUL".to_string())?;
     let root_how = OpenHow {
         flags: O_PATH | O_DIRECTORY | O_CLOEXEC,
         mode: 0,
@@ -57,10 +57,19 @@ fn linux_open(root: &Path, pieces: &[std::ffi::OsString]) -> Result<File, String
     // including its ancestors. A writable ancestor can change which root is
     // selected but cannot permit escape from the opened root descriptor.
     let root_fd = unsafe {
-        syscall(OPENAT2, -100isize, root_path.as_ptr(), &root_how, std::mem::size_of::<OpenHow>())
+        syscall(
+            OPENAT2,
+            -100isize,
+            root_path.as_ptr(),
+            &root_how,
+            std::mem::size_of::<OpenHow>(),
+        )
     };
     if root_fd < 0 {
-        return Err(format!("safe root open failed: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "safe root open failed: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     let root_handle = unsafe { File::from_raw_fd(root_fd as i32) };
     let relative = pieces.iter().map(|v| v.as_bytes()).collect::<Vec<_>>();
@@ -87,7 +96,10 @@ fn linux_open(root: &Path, pieces: &[std::ffi::OsString]) -> Result<File, String
         )
     };
     if fd < 0 {
-        return Err(format!("safe artifact open failed: {}", std::io::Error::last_os_error()));
+        return Err(format!(
+            "safe artifact open failed: {}",
+            std::io::Error::last_os_error()
+        ));
     }
     let file = unsafe { File::from_raw_fd(fd as i32) };
     if !file.metadata().map_err(|e| e.to_string())?.is_file() {
