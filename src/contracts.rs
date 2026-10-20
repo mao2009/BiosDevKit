@@ -21,7 +21,7 @@ pub fn validate(document: &serde_json::Value) -> Result<usize, String> {
         .get("platform")
         .and_then(|v| v.as_str())
         .ok_or("missing platform")?;
-    if platform.trim().is_empty() {
+    if platform.is_empty() {
         return Err("empty platform".into());
     }
     let apis = obj
@@ -166,5 +166,8 @@ mod conformance_tests {
         let mut doc: serde_json::Value = serde_json::from_str(fixture).unwrap();
         doc["architecture"] = serde_json::json!(33);
         assert!(validate(&doc).is_err());
+        let mut doc: serde_json::Value = serde_json::from_str(fixture).unwrap();
+        doc["platform"] = serde_json::json!(" ");
+        assert!(validate(&doc).is_ok());
     }
 }
