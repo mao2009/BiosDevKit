@@ -51,4 +51,11 @@ for malformed in (
     {"architecture": "m68000", "platform": "mcd", "registers": [], "flags": {"preserved": "I", "clobbered": []}},
 ):
     assert validate_semantics(malformed), f"accepted malformed semantic input: {malformed!r}"
+
+for field in ("architecture", "platform"):
+    for value in (None, [], {}, 23):
+        malformed = {"architecture": "huc6280", "platform": "pce", "registers": [], "flags": {}}
+        malformed[field] = value
+        result = validate_semantics(malformed)
+        assert result and isinstance(result, list), (field, value, result)
 print("synthetic adapter schema and semantic negatives PASS")
