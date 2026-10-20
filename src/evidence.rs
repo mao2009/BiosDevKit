@@ -21,6 +21,8 @@ pub struct Summary {
 }
 /// Aggregate already validated records; parsing Test Evidence JSON is out of scope.
 /// Callers must validate schema and map `result`/`reason` without coercing SKIP/BLOCKED to PASS.
+/// Aggregate trusted records; Test Evidence JSON parsing/validation is not implemented here.
+/// The caller must never map BLOCKED or SKIP to PASS.
 pub fn aggregate(records: &[Record<'_>]) -> Result<Summary, String> {
     let mut summary = Summary::default();
     for (index, record) in records.iter().enumerate() {
