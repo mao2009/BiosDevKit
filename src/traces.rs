@@ -10,13 +10,29 @@ pub fn validate_jsonl(input: &str) -> Result<usize, String> {
         }
         let v: serde_json::Value =
             serde_json::from_str(line).map_err(|e| format!("line {line_number}: {e}"))?;
-        let obj = v.as_object().ok_or_else(|| format!("line {line_number}: event must be object"))?;
+        let obj = v
+            .as_object()
+            .ok_or_else(|| format!("line {line_number}: event must be object"))?;
         for field in obj.keys() {
-            if !["schema_version", "sequence", "cpu", "event", "registers", "address", "details", "run_id", "stream_id"].contains(&field.as_str()) {
+            if ![
+                "schema_version",
+                "sequence",
+                "cpu",
+                "event",
+                "registers",
+                "address",
+                "details",
+                "run_id",
+                "stream_id",
+            ]
+            .contains(&field.as_str())
+            {
                 return Err(format!("line {line_number}: unknown field {field}"));
             }
         }
-        if v.get("address").is_some_and(|x| !x.is_string()) || v.get("details").is_some_and(|x| !x.is_object()) {
+        if v.get("address").is_some_and(|x| !x.is_string())
+            || v.get("details").is_some_and(|x| !x.is_object())
+        {
             return Err(format!("line {line_number}: invalid address or details"));
         }
         let get = |key: &str| -> Result<&str, String> {
@@ -86,8 +102,15 @@ mod schema_conformance_tests {
     use super::*;
     #[test]
     fn rejects_extra_and_wrong_optional_fields() {
-        let first = include_str!("../examples/trace.synthetic.jsonl").lines().next().unwrap();
-        for (key, bad) in [("unexpected", serde_json::json!(true)), ("address", serde_json::json!(12)), ("details", serde_json::json!([]))] {
+        let first = include_str!("../examples/trace.synthetic.jsonl")
+            .lines()
+            .next()
+            .unwrap();
+        for (key, bad) in [
+            ("unexpected", serde_json::json!(true)),
+            ("address", serde_json::json!(12)),
+            ("details", serde_json::json!([])),
+        ] {
             let mut doc: serde_json::Value = serde_json::from_str(first).unwrap();
             doc[key] = bad;
             assert!(validate_jsonl(&format!("{doc}")).is_err(), "accepted {key}");
@@ -95,7 +118,13 @@ mod schema_conformance_tests {
     }
     #[test]
     fn distinct_interleaved_streams_with_gaps_are_valid() {
-        let first: serde_json::Value = serde_json::from_str(include_str!("../examples/trace.synthetic.jsonl").lines().next().unwrap()).unwrap();
+        let first: serde_json::Value = serde_json::from_str(
+            include_str!("../examples/trace.synthetic.jsonl")
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
         let mut other = first.clone();
         other["stream_id"] = serde_json::json!("other");
         let mut third = first.clone();
