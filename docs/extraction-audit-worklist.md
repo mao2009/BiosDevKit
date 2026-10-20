@@ -22,3 +22,11 @@ This document records a **limited primary-source inventory**. It does not author
 4. **Before any migration:** record clean-clone baseline results for both repositories, compare generated evidence outputs and retain platform-specific tests.
 
 **Status:** Partial source inspection performed; **actual extraction is BLOCKED**. No clean-clone tests or file moves performed. Issue #19 remains open until every gate is backed by reproducible evidence.
+
+## Checked test entry points and direct dependencies
+
+- PCE `Makefile` at pinned commit: `make host-test` runs `python -m unittest discover -s tests/host -v`; `make test` additionally builds with cc65, runs integration and real Geargrafx diagnostic flows. Merely finding these targets does not establish passing results.
+- MCD `tests/host/test_evidence.py` imports `tools/evidence/evidence.py` using `importlib.util.spec_from_file_location` and exercises synthetic ROM data, schema-versus-Python constants, fail-closed status validation, redaction, golden reports and subprocess CLI. Its header gives `python -I -B -m unittest discover -s tests/host`; `Makefile`'s `test` target runs only `tools/rom/test_*.py` and therefore is **not** equivalent to the evidence-test suite.
+- MCD `tools/evidence/evidence.py` imports Python standard library modules and its record schema requires ROM/emulator provenance. Do **not** substitute the Rust `Record` status aggregator for that full validation pipeline.
+
+These are **source-inspection findings only**; no tests were executed in clean clones. The remaining caller graph, detailed license notices of individual files, and reproducible baseline results must be supplied before Issue #19 can be closed.
