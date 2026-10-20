@@ -1,0 +1,42 @@
+name: Source audit clean-clone baseline
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/source-audit-baseline.yml'
+      - 'docs/extraction-audit-worklist.md'
+permissions:
+  contents: read
+jobs:
+  host-baseline:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pce
+            repository: mao2009/oss-pce-cd-bios
+            revision: 784b885de03515f25a2d9af69621d05ccfff2b94
+          - name: mcd
+            repository: mao2009/oss-mcd-bios
+            revision: 94ce0c23c6b53f2bacac0d8b9051d5f1abea33f5
+    name: Pinned host tests (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          path: source
+          persist-credentials: false
+      - name: Record provenance and tools
+        run: |
+          git -C source rev-parse HEAD
+          python3 --version
+          git --version
+      - name: Run evidence baseline
+        working-directory: source
+        run: |
+          if [ "${{ matrix.name }}" = "pce" ]; then
+            python3 -m unittest discover -s tests/host -v
+          else
+            python3 -I -B -m unittest discover -s tests/host -v
+          fi
