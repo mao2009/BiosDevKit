@@ -38,6 +38,16 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unknown_command() {
+        assert!(Cli::try_parse_from(["biosdevkit", "unknown"]).is_err());
+    }
+
+    #[test]
+    fn rejects_missing_command() {
+        assert!(Cli::try_parse_from(["biosdevkit"]).is_err());
+    }
+
+    #[test]
     fn about_command_parses() {
         assert!(matches!(
             Cli::try_parse_from(["biosdevkit", "about"]),
