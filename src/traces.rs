@@ -152,7 +152,10 @@ mod reader_tests {
     #[test]
     fn reader_matches_string_validation() {
         let fixture = include_str!("../examples/trace.synthetic.jsonl");
-        assert_eq!(validate_reader(BufReader::new(Cursor::new(fixture))), validate_jsonl(fixture));
+        assert_eq!(
+            validate_reader(BufReader::new(Cursor::new(fixture))),
+            validate_jsonl(fixture)
+        );
     }
 
     #[test]
