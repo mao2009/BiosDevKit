@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "platform": "mcd",
+  "architecture": "m68000",
+  "api_id": "synthetic.mcd.return",
+  "entry_point": "symbol:synthetic_m68k_api",
+  "registers": [
+    {
+      "logical": "argument0",
+      "physical": "D0",
+      "direction": "input",
+      "width_bits": 32
+    }
+  ],
+  "flags": {
+    "preserved": [
+      "I"
+    ],
+    "clobbered": [
+      "Z"
+    ]
+  },
+  "stack": {
+    "entry": "synthetic A7",
+    "exit": "synthetic restored A7",
+    "return_address": "synthetic 32-bit PC on stack"
+  },
+  "return_state": {
+    "mechanism": "synthetic RTS",
+    "pc_source": "synthetic stack return"
+  }
+}

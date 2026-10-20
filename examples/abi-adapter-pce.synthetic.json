@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "platform": "pce",
+  "architecture": "huc6280",
+  "api_id": "synthetic.pce.return",
+  "entry_point": "symbol:synthetic_huc6280_api",
+  "registers": [
+    {
+      "logical": "argument0",
+      "physical": "A",
+      "direction": "input",
+      "width_bits": 8
+    }
+  ],
+  "flags": {
+    "preserved": [
+      "I"
+    ],
+    "clobbered": [
+      "Z"
+    ]
+  },
+  "stack": {
+    "entry": "synthetic 6502-family stack",
+    "exit": "synthetic balanced return",
+    "return_address": "synthetic caller return on stack"
+  },
+  "return_state": {
+    "mechanism": "synthetic RTS",
+    "pc_source": "synthetic stack return"
+  }
+}
