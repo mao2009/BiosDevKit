@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthetic ABI adapter mapping v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "platform",
+    "architecture",
+    "api_id",
+    "entry_point",
+    "registers",
+    "flags",
+    "stack",
+    "return_state"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "platform": {
+      "enum": [
+        "pce",
+        "mcd"
+      ]
+    },
+    "architecture": {
+      "enum": [
+        "huc6280",
+        "m68000"
+      ]
+    },
+    "api_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entry_point": {
+      "type": "string",
+      "minLength": 1
+    },
+    "registers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "logical",
+          "physical",
+          "direction",
+          "width_bits"
+        ],
+        "properties": {
+          "logical": {
+            "type": "string",
+            "minLength": 1
+          },
+          "physical": {
+            "type": "string",
+            "minLength": 1
+          },
+          "direction": {
+            "enum": [
+              "input",
+              "output",
+              "inout"
+            ]
+          },
+          "width_bits": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preserved",
+        "clobbered"
+      ],
+      "properties": {
+        "preserved": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "clobbered": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry",
+        "exit",
+        "return_address"
+      ],
+      "properties": {
+        "entry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "return_address": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "return_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "pc_source"
+      ],
+      "properties": {
+        "mechanism": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pc_source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "pce"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "architecture": {
+            "const": "huc6280"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "const": "mcd"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "architecture": {
+            "const": "m68000"
+          }
+        }
+      }
+    }
+  ]
+}
