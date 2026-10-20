@@ -162,7 +162,7 @@ mod tests {
         let make = |addresses: &[&str]| {
             addresses.iter().enumerate().map(|(i, addr)| {
                 event("r", "s", "cpu", i as u64 + 1, addr)
-            }).collect::<Vec<_>>().join("\\n")
+            }).collect::<Vec<_>>().join("\n")
         };
         let baseline = make(&["A", "B", "C", "D"]);
         assert_eq!(first_difference(&baseline, &make(&["A", "X", "B", "C", "D"])).unwrap().unwrap().kind, DifferenceKind::Extra);
