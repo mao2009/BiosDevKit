@@ -70,3 +70,14 @@ Read-only, credential-free source checkout and `python3 -I -B -m unittest discov
 This pinned host-baseline workflow is an additional regression gate, not a substitute for the full product-specific integration gates or caller-by-caller equivalence testing. Until complete, migration remains **BLOCKED**.
 
 **Second pinned MCD run:** [job 118629570276](https://github.com/mao2009/BiosDevKit/actions/runs/39423341930/job/118629570276) **PASS**, 34 host tests. The remaining PCE failure is a source-repository issue to investigate separately; this documentation PR must not modify PCE runtime behavior or mask the failure. Migration gate stays **BLOCKED**.
+
+## Fixed PCE host baseline — positive verification (2026-10-20)
+
+A **new** fixed source revision, rather than the original historical source snapshot, was checked out in the read-only [pinned workflow run 39428121712](https://github.com/mao2009/BiosDevKit/actions/runs/39428121712):
+
+| Repository | Source SHA used by this run | Result | Job |
+|---|---|---|---|
+| PCE | `784b885de03515f25a2d9af69621d05ccfff2b94` (includes PR #393 fixing Issue #392 test expectation) | **PASS:** 1,972 tests; 80 SKIP; 0 FAIL and 0 ERROR | [118645764198](https://github.com/mao2009/BiosDevKit/actions/runs/39428121712/job/118645764198) |
+| MCD | `94ce0c23c6b53f2bacac0d8b9051d5f1abea33f5` | **PASS:** 34 tests | [118645764170](https://github.com/mao2009/BiosDevKit/actions/runs/39428121712/job/118645764170) |
+
+The earlier pinned PCE revision `d95ae8c3` **remains a historical FAIL** (1,946 tests; 1 failure; 80 SKIP), and the original rows in this audit remain historical source-inspection provenance, not a claim that the old revision passed. Workflow PCE test ref now points at the corrected revision. The 80 skips are reported, not promoted to passes. These jobs are **host-only** and do not demonstrate real Geargrafx, cc65 integration, MCD hardware compatibility, or cross-platform adapter equivalence. Source migration is **still BLOCKED** pending full dependency/provenance and product-specific regression evidence; the host baseline issue is resolved.
