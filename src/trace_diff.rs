@@ -52,6 +52,11 @@ fn normalized(mut v: Value) -> Value {
 pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Difference>, String> {
     let left = lanes(expected)?;
     let right = lanes(actual)?;
+    let left_runs: BTreeSet<_> = left.keys().map(|key| key.0.clone()).collect();
+    let right_runs: BTreeSet<_> = right.keys().map(|key| key.0.clone()).collect();
+    if left_runs != right_runs {
+        return Err("run_id sets differ: explicit capture pairing is required".into());
+    }
     let keys: BTreeSet<_> = left.keys().chain(right.keys()).cloned().collect();
     for (run, stream, cpu) in keys {
         let key = (run.clone(), stream.clone(), cpu.clone());
@@ -89,7 +94,7 @@ pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Differenc
                 && na[2..] == nb[2..]
             {
                 DifferenceKind::Reordered
-            } else if na.len() == nb.len() {
+            } else if na.len() == nb.len() && na[1..] == nb[1..] {
                 DifferenceKind::Changed
             } else {
                 return Err(format!(
@@ -236,6 +241,27 @@ mod tests {
             DifferenceKind::Missing
         );
         assert!(first_difference(&make(&["A", "B", "C"]), &make(&["A", "X", "Y", "C"])).is_err());
+    }
+
+    #[test]
+    fn rejects_composite_same_length_edits_and_run_mismatch() {
+        let make = |run: &str, values: &[&str]| {
+            values
+                .iter()
+                .enumerate()
+                .map(|(i, addr)| event(run, "s", "cpu", i as u64 + 1, addr))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert!(first_difference(
+            &make("r", &["A", "B", "C", "D"]),
+            &make("r", &["A", "X", "B", "D"])
+        ).is_err());
+        assert!(first_difference(
+            &make("r", &["A", "B", "C", "D"]),
+            &make("r", &["A", "X", "C", "Y"])
+        ).is_err());
+        assert!(first_difference(&make("r1", &["A"]), &make("r2", &["A"])).is_err());
     }
 
     #[test]
