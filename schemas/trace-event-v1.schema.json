@@ -8,7 +8,9 @@
     "sequence",
     "cpu",
     "event",
-    "registers"
+    "registers",
+    "run_id",
+    "stream_id"
   ],
   "properties": {
     "schema_version": {
@@ -42,6 +44,14 @@
     },
     "details": {
       "type": "object"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stream_id": {
+      "type": "string",
+      "minLength": 1
     }
   }
 }
