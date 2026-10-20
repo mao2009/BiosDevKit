@@ -236,7 +236,9 @@ mod tests {
                 let _ = symlink(&outside_clone, &path);
                 let _ = fs::remove_file(&path);
                 let _ = fs::create_dir(&path);
-                let _ = fs::write(path.join("data"), b"inside");
+                let staged = root_clone.join("staged-data");
+                let _ = fs::write(&staged, b"inside");
+                let _ = fs::rename(&staged, path.join("data"));
             }
         });
         let mapping = HashMap::from([("id".into(), PathBuf::from("swap/data"))]);
