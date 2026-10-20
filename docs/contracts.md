@@ -7,3 +7,5 @@
 Rules for future validators: reject duplicate `(platform, api.id)` entries; reject unknown schema versions; avoid implicit register defaults; store test evidence separately from contract claims.
 
 The fixture under `examples/` is synthetic, not a hardware compatibility claim.
+
+The schema checks structure only. `tests/contract-schema.py` now checks duplicate API identifiers within one document as a separate semantic invariant. Production consumers MUST apply both checks before trusting a contract. CPU-specific ABI rules remain unimplemented, and no executable Rust contract validator is claimed.
