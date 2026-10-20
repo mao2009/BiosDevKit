@@ -261,7 +261,8 @@ mod tests {
         assert!(first_difference(
             &make("r", &["A", "B", "C", "D"]),
             &make("r", &["A", "X", "C", "Y"])
-        ).is_err());
+        )
+        .is_err());
         assert!(first_difference(&make("r1", &["A"]), &make("r2", &["A"])).is_err());
     }
 
