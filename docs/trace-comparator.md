@@ -5,14 +5,15 @@ inputs, and revalidates each through the existing Rust validator. It compares
 normalized event records per `(run_id, stream_id, cpu)` lane, in that lane's
 input order. `sequence` and `run_id` are ignored for payload equivalence;
 the run identifier is nevertheless used to pair lanes. Captures with different
-run ID sets now fail with a clear error; callers must explicitly normalize
-run IDs before comparing different runs.
+run ID sets or `(run_id, stream_id, cpu)` lane sets now fail with a clear
+error; callers must explicitly normalize and pair captures before comparing.
 
-Classification: exact single-event insertion/deletion alignment across the
-remaining suffix = extra/missing (also with duplicated payloads); adjacent
-pair swap with identical remaining suffix = reordered; otherwise changed.
-This conservative first-difference comparator does not implement a general
-edit script for multiple simultaneous insertions or deletions.
+Classification: ordered-subsequence alignment of normalized remaining events
+recognizes one or multiple pure insertions/deletions as extra/missing, including
+duplicated payloads. Adjacent pair swaps with identical remaining suffix are
+reordered; a single event substitution with unchanged suffix is changed.
+Mixed or ambiguous edits return an explicit error rather than guessing.
+This comparator reports the first difference, not a complete edit script.
 The first mismatch is deterministic by sorted lane key, then input index.
 This is a conservative heuristic, not full edit-distance alignment and not
 evidence of causality across CPU streams. Shared counters across CPUs do not
