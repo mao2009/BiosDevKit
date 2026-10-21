@@ -217,40 +217,70 @@ mod tests {
     fn concurrent_symlink_swap_never_reads_outside_root() {
         use std::io::Read;
         use std::os::unix::fs::symlink;
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
         let root = tmp();
         let outside = tmp();
-        fs::create_dir(root.join("safe")).unwrap();
-        fs::write(root.join("safe/data"), b"inside").unwrap();
         fs::write(outside.join("data"), b"OUTSID").unwrap();
+        let path = root.join("swap");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("data"), b"inside").unwrap();
+        let mapping = HashMap::from([("id".into(), PathBuf::from("swap/data"))]);
+        // Prove that the resolver can return a valid file, independently of
+        // the scheduler's choice during the racing section.
+        let mut baseline = Vec::new();
+        open_mapped(&root, &mapping, "id")
+            .unwrap()
+            .read_to_end(&mut baseline)
+            .unwrap();
+        assert_eq!(baseline, b"inside");
+
         let running = Arc::new(AtomicBool::new(true));
+        let swaps = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Barrier::new(2));
         let active = Arc::clone(&running);
+        let swap_count = Arc::clone(&swaps);
+        let gate = Arc::clone(&started);
         let root_clone = root.clone();
         let outside_clone = outside.clone();
         let attacker = std::thread::spawn(move || {
+            let path = root_clone.join("swap");
+            // Publish at least one malicious symlink before the reader starts.
+            fs::remove_dir_all(&path).unwrap();
+            symlink(&outside_clone, &path).unwrap();
+            swap_count.fetch_add(1, Ordering::SeqCst);
+            gate.wait();
             while active.load(Ordering::Relaxed) {
-                let path = root_clone.join("swap");
                 let _ = fs::remove_file(&path);
                 let _ = fs::remove_dir_all(&path);
-                let _ = symlink(&outside_clone, &path);
+                if symlink(&outside_clone, &path).is_ok() {
+                    swap_count.fetch_add(1, Ordering::Relaxed);
+                }
                 let _ = fs::remove_file(&path);
-                let _ = fs::create_dir(&path);
-                let staged = root_clone.join("staged-data");
-                let _ = fs::write(&staged, b"inside");
-                let _ = fs::rename(&staged, path.join("data"));
+                if fs::create_dir(&path).is_ok() {
+                    let staged = root_clone.join("staged-data");
+                    if fs::write(&staged, b"inside").is_ok() {
+                        let _ = fs::rename(&staged, path.join("data"));
+                    }
+                }
+                std::thread::yield_now();
             }
         });
-        let mapping = HashMap::from([("id".into(), PathBuf::from("swap/data"))]);
-        for _ in 0..1000 {
+        started.wait();
+        let mut opened = 0usize;
+        for _ in 0..10000 {
             if let Ok(mut file) = open_mapped(&root, &mapping, "id") {
                 let mut content = Vec::new();
                 file.read_to_end(&mut content).unwrap();
                 assert_eq!(content, b"inside");
+                opened += 1;
             }
+            std::thread::yield_now();
         }
         running.store(false, Ordering::Relaxed);
         attacker.join().unwrap();
+        assert!(swaps.load(Ordering::Relaxed) > 0, "no symlink swap executed");
+        assert!(opened > 0, "no successful in-root open during race");
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(outside).unwrap();
     }
