@@ -279,7 +279,10 @@ mod tests {
         }
         running.store(false, Ordering::Relaxed);
         attacker.join().unwrap();
-        assert!(swaps.load(Ordering::Relaxed) > 0, "no symlink swap executed");
+        assert!(
+            swaps.load(Ordering::Relaxed) > 0,
+            "no symlink swap executed"
+        );
         assert!(opened > 0, "no successful in-root open during race");
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(outside).unwrap();
