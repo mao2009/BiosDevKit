@@ -57,7 +57,12 @@ pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Differenc
     if left_runs != right_runs {
         return Err("run_id sets differ: explicit capture pairing is required".into());
     }
-    let keys: BTreeSet<_> = left.keys().chain(right.keys()).cloned().collect();
+    let left_keys: BTreeSet<_> = left.keys().cloned().collect();
+    let right_keys: BTreeSet<_> = right.keys().cloned().collect();
+    if left_keys != right_keys {
+        return Err("trace lane sets differ: explicit stream/cpu pairing is required".into());
+    }
+    let keys = left_keys;
     for (run, stream, cpu) in keys {
         let key = (run.clone(), stream.clone(), cpu.clone());
         let a = left.get(&key).map(Vec::as_slice).unwrap_or(&[]);
@@ -264,6 +269,15 @@ mod tests {
         )
         .is_err());
         assert!(first_difference(&make("r1", &["A"]), &make("r2", &["A"])).is_err());
+    }
+
+    #[test]
+    fn rejects_unpaired_stream_or_cpu_lane() {
+        let a = event("r", "s", "huc6280", 1, "A");
+        let wrong_stream = event("r", "other", "huc6280", 1, "A");
+        let wrong_cpu = event("r", "s", "m68000", 1, "A");
+        assert!(first_difference(&a, &wrong_stream).is_err());
+        assert!(first_difference(&a, &wrong_cpu).is_err());
     }
 
     #[test]
