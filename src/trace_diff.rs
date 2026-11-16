@@ -12,24 +12,27 @@ pub enum DifferenceKind {
     Changed,
 }
 
+/// Publication-safe mismatch summary. No untrusted run/stream/CPU identifiers,
+/// addresses, registers, nested details or raw event objects are returned.
+/// lane_index is the position in the sorted internal lane set; callers that
+/// need identifiers must resolve it in a separately authenticated private map.
 #[derive(Debug, PartialEq)]
 pub struct Difference {
     pub kind: DifferenceKind,
-    pub run_id: String,
-    pub stream_id: String,
-    pub cpu: String,
+    pub lane_index: usize,
     pub index: usize,
-    pub expected: Option<Value>,
-    pub actual: Option<Value>,
+    pub expected_kind: Option<&'static str>,
+    pub actual_kind: Option<&'static str>,
 }
 
 type Lane = (String, String, String);
 
 fn lanes(input: &str) -> Result<BTreeMap<Lane, Vec<Value>>, String> {
-    validate_jsonl(input)?;
+    validate_jsonl(input).map_err(|_| "invalid trace input".to_string())?;
     let mut output: BTreeMap<Lane, Vec<Value>> = BTreeMap::new();
     for line in input.lines() {
-        let v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
+        let v: Value =
+            serde_json::from_str(line).map_err(|_| "invalid trace input".to_string())?;
         let key = (
             v["run_id"].as_str().unwrap().to_owned(),
             v["stream_id"].as_str().unwrap().to_owned(),
@@ -48,7 +51,21 @@ fn normalized(mut v: Value) -> Value {
     v
 }
 
-/// Report the first deterministic lane/index mismatch. No cross-lane causal inference.
+/// Return only a member of the fixed Trace Event v1 event-kind vocabulary.
+fn public_event_kind(value: Option<&Value>) -> Option<&'static str> {
+    match value?.get("event")?.as_str()? {
+        "bios_call" => Some("bios_call"),
+        "bios_return" => Some("bios_return"),
+        "interrupt" => Some("interrupt"),
+        "memory_write" => Some("memory_write"),
+        "device_event" => Some("device_event"),
+        _ => None,
+    }
+}
+
+/// Report the first deterministic *sanitized* lane/index mismatch.
+/// No source-controlled identifiers or raw event data cross this boundary.
+/// No cross-lane causal inference.
 pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Difference>, String> {
     let left = lanes(expected)?;
     let right = lanes(actual)?;
@@ -63,8 +80,7 @@ pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Differenc
         return Err("trace lane sets differ: explicit stream/cpu pairing is required".into());
     }
     let keys = left_keys;
-    for (run, stream, cpu) in keys {
-        let key = (run.clone(), stream.clone(), cpu.clone());
+    for (lane_index, key) in keys.into_iter().enumerate() {
         let a = left.get(&key).map(Vec::as_slice).unwrap_or(&[]);
         let b = right.get(&key).map(Vec::as_slice).unwrap_or(&[]);
         for index in 0..a.len().max(b.len()) {
@@ -102,18 +118,14 @@ pub fn first_difference(expected: &str, actual: &str) -> Result<Option<Differenc
             } else if na.len() == nb.len() && na[1..] == nb[1..] {
                 DifferenceKind::Changed
             } else {
-                return Err(format!(
-                    "ambiguous trace alignment in run {run} stream {stream} cpu {cpu} at index {index}"
-                ));
+                return Err("ambiguous trace alignment".into());
             };
             return Ok(Some(Difference {
                 kind,
-                run_id: run,
-                stream_id: stream,
-                cpu,
+                lane_index,
                 index,
-                expected: x,
-                actual: y,
+                expected_kind: public_event_kind(x.as_ref()),
+                actual_kind: public_event_kind(y.as_ref()),
             }));
         }
     }
@@ -295,4 +307,67 @@ mod tests {
         assert_eq!(first_difference(&a, &b).unwrap(), None);
         assert!(first_difference("broken", &b).is_err());
     }
+    #[test]
+    fn never_exposes_private_paths_hashes_or_nested_payloads() {
+        let secret_path = "/private/customer/game.cue";
+        let private_hash = "a".repeat(64);
+        let secret_run = "private-run/game.cue";
+        let mut first: Value =
+            serde_json::from_str(&event(secret_run, "private-stream/game.cue", "private-cpu",
+                                        1, secret_path)).unwrap();
+        first["details"] = serde_json::json!({
+            "nested":{"file":secret_path,"sha256":private_hash},
+            "list":[{"value":secret_path}]
+        });
+        first["registers"]["X"] = serde_json::json!(secret_path);
+        let mut second = first.clone();
+        second["address"] = serde_json::json!("/private/customer/other.cue");
+        let difference = first_difference(&first.to_string(), &second.to_string())
+            .unwrap().unwrap();
+        assert_eq!(difference.kind, DifferenceKind::Changed);
+        assert_eq!(difference.lane_index, 0);
+        assert_eq!(difference.expected_kind, Some("bios_call"));
+        assert_eq!(difference.actual_kind, Some("bios_call"));
+        let displayed = format!("{difference:?}");
+        for private in [secret_path, private_hash.as_str(), secret_run,
+                        "private-stream", "private-cpu", "other.cue"] {
+            assert!(!displayed.contains(private), "private data leaked");
+        }
+
+        // A malformed (duplicate sequence) trace must not forward validator
+        // errors that interpolate user-provided run and stream identifiers.
+        let invalid = format!("{}\n{}\n", first, first);
+        let error = first_difference(&invalid, &second.to_string()).unwrap_err();
+        assert_eq!(error, "invalid trace input");
+        assert!(!error.contains(secret_run));
+
+        // A multi-event ambiguous alignment must likewise remain fixed text.
+        let make = |addresses: &[&str]| {
+            addresses.iter().enumerate()
+                .map(|(idx, addr)| {
+                    event(secret_run, "private-stream/game.cue", "private-cpu",
+                          idx as u64 + 1, addr)
+                })
+                .collect::<Vec<_>>().join("\n")
+        };
+        let ambiguous = first_difference(
+            &make(&["before", secret_path, "after"]),
+            &make(&["before", "replacement", "new", "after"]),
+        ).unwrap_err();
+        assert_eq!(ambiguous, "ambiguous trace alignment");
+    }
+
+    #[test]
+    fn missing_and_extra_events_only_report_fixed_kind_and_lane_index() {
+        let first = event("secret/run/path", "secret/stream", "private/cpu", 1, "sensitive");
+        let second = format!("{}\n{}", first, event("secret/run/path", "secret/stream",
+                                                    "private/cpu", 2, "sensitive2"));
+        let extra = first_difference(&first, &second).unwrap().unwrap();
+        assert_eq!(extra.kind, DifferenceKind::Extra);
+        assert_eq!(extra.lane_index, 0);
+        assert_eq!(extra.expected_kind, None);
+        assert_eq!(extra.actual_kind, Some("bios_call"));
+        assert!(!format!("{extra:?}").contains("secret"));
+    }
+
 }
