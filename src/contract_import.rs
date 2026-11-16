@@ -50,9 +50,20 @@ pub struct Candidate {
     pub unknown_fields: Vec<String>,
 }
 
+/// Emit candidates one by one, stopping as soon as the sink returns an error.
+/// Adapters must not build an unbounded internal buffer before invoking the sink.
 pub trait SourceAdapter {
-    fn extract(&self, source: &Value) -> Result<Vec<Candidate>, String>;
+    fn visit(
+        &self,
+        source: &Value,
+        max_candidates: usize,
+        emit: &mut dyn FnMut(Candidate) -> Result<(), String>,
+    ) -> Result<(), String>;
 }
+pub const MAX_CANDIDATES: usize = 4096;
+const MAX_REGISTERS: usize = 64;
+const MAX_FIELDS: usize = 64;
+const MAX_ENTRY_BYTES: usize = 256;
 
 #[derive(Debug)]
 pub struct ImportedContract {
@@ -96,17 +107,23 @@ pub fn import<A: SourceAdapter>(
     if !is_token(platform) || !is_token(architecture) {
         return Err("invalid platform or architecture".into());
     }
-    // The adapter sees untrusted source data. It must produce a complete IR.
-    // Its error may contain secrets; discard it at the public boundary.
-    let candidates = adapter
-        .extract(source)
-        .map_err(|_| "source adapter rejected input".to_string())?;
-    if candidates.is_empty() {
-        return Err("no candidate APIs".into());
-    }
+    // Backpressure reaches the adapter during extraction, not after a Vec
+    // has already been created. This is a cap on output, not a source-file cap.
     let mut api_ids = HashSet::new();
-    let mut apis = Vec::with_capacity(candidates.len());
-    for candidate in candidates {
+    let mut apis = Vec::new();
+    let mut emit = |candidate: Candidate| -> Result<(), String> {
+        if apis.len() >= MAX_CANDIDATES {
+            return Err("candidate limit exceeded".into());
+        }
+        if candidate.entry_point.len() > MAX_ENTRY_BYTES
+            || candidate.inputs.len() > MAX_REGISTERS
+            || candidate.outputs.len() > MAX_REGISTERS
+            || candidate.side_effects.len() > MAX_FIELDS
+            || candidate.unknown_fields.len() > MAX_FIELDS
+            || candidate.side_effects.iter().any(|v| v.len() > MAX_ENTRY_BYTES)
+        {
+            return Err("candidate resource limit exceeded".into());
+        }
         if !is_token(&candidate.id)
             || !is_token(&candidate.name)
             || candidate.entry_point.is_empty()
@@ -146,6 +163,13 @@ pub fn import<A: SourceAdapter>(
             }
         });
         apis.push(record);
+        Ok(())
+    };
+    adapter
+        .visit(source, MAX_CANDIDATES, &mut emit)
+        .map_err(|_| "source adapter rejected input".to_string())?;
+    if apis.is_empty() {
+        return Err("no candidate APIs".into());
     }
     let document = json!({
         "schema_version": 1,
@@ -190,7 +214,12 @@ mod tests {
     // The two dialects have distinct event shapes, field conventions and CPUs.
     struct EightBit;
     impl SourceAdapter for EightBit {
-        fn extract(&self, source: &Value) -> Result<Vec<Candidate>, String> {
+        fn visit(
+            &self,
+            source: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Candidate) -> Result<(), String>,
+        ) -> Result<(), String> {
             let first = source["slots"]
                 .as_array()
                 .ok_or("bad slots")?
@@ -199,19 +228,24 @@ mod tests {
             let mut item = candidate("TEST_8BIT", "0xE000");
             item.id = first["key"].as_str().ok_or("missing key")?.to_string();
             item.outputs = vec![json!({"name":"A","meaning":"candidate output","width_bits":8})];
-            Ok(vec![item])
+            emit(item)
         }
     }
     struct MultiCpu;
     impl SourceAdapter for MultiCpu {
-        fn extract(&self, source: &Value) -> Result<Vec<Candidate>, String> {
+        fn visit(
+            &self,
+            source: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Candidate) -> Result<(), String>,
+        ) -> Result<(), String> {
             let symbol = source["exports"]["entry"]
                 .as_str()
                 .ok_or("missing symbol")?;
             let mut item = candidate("TEST_MULTICPU", &format!("symbol:{symbol}"));
             item.inputs = vec![json!({"name":"r0","meaning":"candidate argument","width_bits":32})];
             item.source_claim = SourceClaim::ClaimedVerified;
-            Ok(vec![item])
+            emit(item)
         }
     }
     #[test]
@@ -276,8 +310,16 @@ mod tests {
     }
     struct Fixed(Vec<Candidate>);
     impl SourceAdapter for Fixed {
-        fn extract(&self, _: &Value) -> Result<Vec<Candidate>, String> {
-            Ok(self.0.clone())
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Candidate) -> Result<(), String>,
+        ) -> Result<(), String> {
+            for item in &self.0 {
+                emit(item.clone())?;
+            }
+            Ok(())
         }
     }
     #[test]
@@ -336,4 +378,35 @@ mod tests {
         )
         .is_err());
     }
+    struct Flood(std::cell::Cell<usize>);
+    impl SourceAdapter for Flood {
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Candidate) -> Result<(), String>,
+        ) -> Result<(), String> {
+            for _ in 0..MAX_CANDIDATES + 100 {
+                let n = self.0.get();
+                self.0.set(n + 1);
+                let mut item = candidate("TEST", "symbol:synthetic");
+                item.id = format!("api{n}");
+                emit(item)?;
+            }
+            Ok(())
+        }
+    }
+    #[test]
+    fn rejects_during_production_without_buffering_all_candidates() {
+        let adapter = Flood(std::cell::Cell::new(0));
+        assert!(import(&adapter, &json!({}), &pin(), "synthetic", "synthetic").is_err());
+        assert_eq!(adapter.0.get(), MAX_CANDIDATES + 1);
+    }
+    #[test]
+    fn rejects_oversized_single_candidate_before_output() {
+        let mut bad = candidate("TEST", "symbol:synthetic");
+        bad.side_effects = vec!["x".repeat(MAX_ENTRY_BYTES + 1)];
+        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+    }
+
 }
