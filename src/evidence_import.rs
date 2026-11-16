@@ -147,7 +147,7 @@ pub fn import<A: EvidenceAdapter>(
     let limit = catalog.len().min(MAX_RECORDS);
     let mut seen = HashSet::new();
     let mut output = Vec::new();
-    let mut emit = |record: SourceRecord| -> Result<(), String> {
+    let mut validate_and_store = |record: SourceRecord| -> Result<(), String> {
         if output.len() >= limit {
             return Err("evidence record limit exceeded".into());
         }
@@ -213,9 +213,23 @@ pub fn import<A: EvidenceAdapter>(
         output.push(ImportedRecord::EvidenceV1(result));
         Ok(())
     };
-    adapter
-        .visit(input, limit, &mut emit)
-        .map_err(|_| "evidence adapter rejected input".to_string())?;
+    // The adapter is not allowed to suppress a sink failure and then report
+    // success with a partial result. Latch the first error at this boundary.
+    let mut sink_rejected = false;
+    let mut emit = |record: SourceRecord| -> Result<(), String> {
+        if sink_rejected {
+            return Err("evidence sink already rejected input".into());
+        }
+        let result = validate_and_store(record);
+        if result.is_err() {
+            sink_rejected = true;
+        }
+        result
+    };
+    let visit_result = adapter.visit(input, limit, &mut emit);
+    if sink_rejected || visit_result.is_err() {
+        return Err("evidence adapter rejected input".into());
+    }
     if output.is_empty() {
         return Err("invalid number of evidence records".into());
     }
@@ -408,4 +422,24 @@ mod tests {
         assert!(import(&adapter, &json!({}), &registrations).is_err());
         assert_eq!(adapter.0.get(), 3);
     }
+    struct IgnoreRejection;
+    impl EvidenceAdapter for IgnoreRejection {
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(SourceRecord) -> Result<(), String>,
+        ) -> Result<(), String> {
+            // A buggy plugin ignores the rejection of an unregistered record.
+            let _ = emit(record("not_registered", Outcome::Pass));
+            let _ = emit(record("single", Outcome::Pass));
+            Ok(())
+        }
+    }
+    #[test]
+    fn ignored_sink_error_cannot_turn_partial_evidence_into_success() {
+        let catalog = [registered("single", RunnerScope::Synthetic)];
+        assert!(import(&IgnoreRejection, &json!({}), &catalog).is_err());
+    }
+
 }
