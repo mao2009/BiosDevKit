@@ -27,3 +27,28 @@ causality require separate proof.
 Equal-length differences are classified `Changed` only when a single payload
 at the first differing index changes and the rest of the lane is identical.
 Composite or ambiguous equal-length edits return an error instead of guessing.
+
+## Public diagnostics and privacy boundary
+
+`Difference` intentionally does **not** expose source-provided `run_id`,
+`stream_id`, `cpu`, `address`, `registers`, `details`, or event JSON.
+It contains only a deterministic `lane_index` (the ordinal in the sorted
+private lane set), mismatch `index`, a fixed `DifferenceKind`, and optional
+fixed-vocabulary `expected_kind` / `actual_kind` values. Run/stream/CPU
+pairing still occurs internally, but those identifiers never appear in
+returned results or errors. Client code that needs to map a lane ordinal to
+a name must do so privately using a separately authenticated mapping;
+never copy private trace IDs into published reports.
+
+The existing Trace Event v1 validator checks *structure*, not confidentiality.
+It permits arbitrary strings in register values, addresses and nested
+`details`. Therefore validation alone does **not** make trace events safe
+to publish. Parser errors, validator errors, and ambiguous alignment errors
+are replaced with fixed codes/messages. Tests cover private paths, 64-character
+hex values, nested data, duplicate sequences and ambiguous alignment.
+
+This change deliberately removes the ability to retrieve raw mismatch
+payloads from the public comparator. Sensitive offline investigations must
+use a separate, explicitly trusted private tool; they must not reintroduce
+raw bytes/identifiers into this API. Comparison still processes in-memory
+raw traces internally and does not enforce pre-parse input byte limits.
