@@ -33,3 +33,20 @@ the core. The two unit-test source dialects demonstrate 8-bit registers and
   consumers must never elevate imported candidate metadata into approval.
 - Adapter errors are reduced to fixed text at the core boundary, since raw
   source parsing errors could contain private information.
+
+## Resource budget and adapter contract
+
+`SourceAdapter::visit` emits candidates one at a time through a fallible sink.
+The core stops on the first rejected emission, including the **4,096th + 1**
+candidate, and checks per-candidate register, side-effect and unknown-field
+counts. Adapters receive the budget and **must stop on sink errors**; they must
+not construct an unbounded `Vec<Candidate>` before emitting. The limiter
+constrains generated output, not a malicious adapter implementation.
+
+**Input parsing is a separate trust boundary:** this API accepts an already
+materialized `serde_json::Value`. It cannot cap memory already allocated
+by a caller reading a large file, nor arbitrary transient allocations inside
+an adapter or a single nested register value. Public source readers must
+apply byte, nesting and field-size limits **before** decoding JSON. These
+limits are not yet provided by this module; do not expose it directly to
+unbounded input sources.
