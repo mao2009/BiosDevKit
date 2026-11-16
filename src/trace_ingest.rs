@@ -106,10 +106,8 @@ pub fn normalize<A: TraceSourceAdapter>(
     }
     // Build lookup sets once, rather than scanning policy Vecs for every
     // register/detail on every event. Their size is already capped at 128.
-    let valid_registers: HashSet<&str> =
-        policy.registers.iter().map(String::as_str).collect();
-    let valid_details: HashSet<&str> =
-        policy.numeric_details.iter().map(String::as_str).collect();
+    let valid_registers: HashSet<&str> = policy.registers.iter().map(String::as_str).collect();
+    let valid_details: HashSet<&str> = policy.numeric_details.iter().map(String::as_str).collect();
 
     // Stream output incrementally and stop the adapter at the event budget.
     // The input Value and adapter's internal allocations are separate concerns.
@@ -367,9 +365,7 @@ mod tests {
         item.registers.insert("reg127".into(), 0x42);
         item.numeric_details.insert("detail127".into(), 7);
         assert_eq!(
-            traces::validate_jsonl(
-                &normalize(&Fixed(vec![item.clone()]), &json!({}), &p).unwrap()
-            ),
+            traces::validate_jsonl(&normalize(&Fixed(vec![item.clone()]), &json!({}), &p).unwrap()),
             Ok(1)
         );
         item.registers.insert("unknown_register".into(), 0);
@@ -378,5 +374,4 @@ mod tests {
         item.numeric_details.insert("unknown_detail".into(), 0);
         assert!(normalize(&Fixed(vec![item]), &json!({}), &p).is_err());
     }
-
 }
