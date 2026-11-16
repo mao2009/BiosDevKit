@@ -148,7 +148,9 @@ fn approved_registers(registers: &[Value], publication: &PublicationPolicy) -> b
             return false;
         }
         obj.get("width_bits").is_none_or(|width| {
-            width.as_u64().is_some_and(|bits| (1..=1024).contains(&bits))
+            width
+                .as_u64()
+                .is_some_and(|bits| (1..=1024).contains(&bits))
         })
     })
 }
@@ -164,9 +166,10 @@ fn approved_candidate(candidate: &Candidate, publication: &PublicationPolicy) ->
         && candidate.side_effects.iter().all(|side_effect| {
             public_description(side_effect) && publication.side_effects.contains(side_effect)
         })
-        && candidate.unknown_fields.iter().all(|name| {
-            public_identifier(name) && publication.unknown_source_fields.contains(name)
-        })
+        && candidate
+            .unknown_fields
+            .iter()
+            .all(|name| public_identifier(name) && publication.unknown_source_fields.contains(name))
 }
 fn is_lower_hex(value: &str, len: usize) -> bool {
     value.len() == len
@@ -303,17 +306,23 @@ mod tests {
                     .map(|index| format!("api{index}"))
                     .collect(),
                 api_names: ["TEST", "TEST_8BIT", "TEST_MULTICPU"]
-                    .into_iter().map(str::to_string).collect(),
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
                 entry_points: ["0x00", "0xE000", "symbol:test", "symbol:synthetic"]
-                    .into_iter().map(str::to_string).collect(),
-                register_names: ["A", "r0"]
-                    .into_iter().map(str::to_string).collect(),
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                register_names: ["A", "r0"].into_iter().map(str::to_string).collect(),
                 register_meanings: ["candidate output", "candidate argument", "test"]
-                    .into_iter().map(str::to_string).collect(),
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
                 side_effects: ["changes status flags"]
-                    .into_iter().map(str::to_string).collect(),
-                unknown_source_fields: ["timing", "same"]
-                    .into_iter().map(str::to_string).collect(),
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+                unknown_source_fields: ["timing", "same"].into_iter().map(str::to_string).collect(),
             },
         }
     }
@@ -543,30 +552,72 @@ mod tests {
 
         let mut bad = baseline.clone();
         bad.entry_point = private_path.into();
-        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![bad]),
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
 
         let mut bad = baseline.clone();
         bad.name = "customer_game.rom".into();
-        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![bad]),
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
 
         let mut bad = baseline.clone();
         bad.inputs = vec![json!({
             "name": "A", "meaning": "test", "width_bits": 8,
             "nested": {"local": private_path, "media_hash": private_hash}
         })];
-        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![bad]),
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
 
         let mut bad = baseline.clone();
         bad.outputs = vec![json!({"name":"A","meaning":private_path,"width_bits":8})];
-        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![bad]),
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
 
         let mut bad = baseline.clone();
         bad.side_effects.push(private_path.into());
-        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![bad]),
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
 
         let mut bad = baseline.clone();
         bad.unknown_fields.push("private_media.rom".into());
-        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![bad]),
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
 
         // Even adding an unsafe entry to the caller catalog does not bypass
         // the path/filename/description gate.
@@ -574,23 +625,51 @@ mod tests {
         policy.publication.side_effects.insert(private_path.into());
         let mut bad = baseline.clone();
         bad.side_effects.push(private_path.into());
-        assert!(import(&Fixed(vec![bad]), &json!({}), &policy, "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![bad]),
+            &json!({}),
+            &policy,
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
 
         let mut missing = pin();
         missing.publication.api_ids.clear();
-        assert!(import(&Fixed(vec![baseline]), &json!({}), &missing, "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![baseline]),
+            &json!({}),
+            &missing,
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
     }
 
     #[test]
     fn approved_public_descriptions_are_kept_exactly() {
         let mut candidate = candidate("TEST", "0x00");
-        candidate.inputs.push(json!({"name":"A","meaning":"test","width_bits":8}));
+        candidate
+            .inputs
+            .push(json!({"name":"A","meaning":"test","width_bits":8}));
         candidate.side_effects.push("changes status flags".into());
-        let result = import(&Fixed(vec![candidate]), &json!({}),
-                            &pin(), "synthetic", "synthetic").unwrap();
+        let result = import(
+            &Fixed(vec![candidate]),
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic",
+        )
+        .unwrap();
         assert_eq!(result.document["apis"][0]["inputs"][0]["meaning"], "test");
-        assert_eq!(result.document["apis"][0]["side_effects"][0], "changes status flags");
-        assert_eq!(result.document["apis"][0]["platform_extension"]["biosdevkit_import"]["verification"], "UNVERIFIED");
+        assert_eq!(
+            result.document["apis"][0]["side_effects"][0],
+            "changes status flags"
+        );
+        assert_eq!(
+            result.document["apis"][0]["platform_extension"]["biosdevkit_import"]["verification"],
+            "UNVERIFIED"
+        );
     }
 
     struct IgnoreRejection;
@@ -608,8 +687,13 @@ mod tests {
     }
     #[test]
     fn discarded_rejection_cannot_create_partial_published_contract() {
-        assert!(import(&IgnoreRejection, &json!({}), &pin(),
-                       "synthetic", "synthetic").is_err());
+        assert!(import(
+            &IgnoreRejection,
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
     }
-
 }
