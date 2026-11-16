@@ -31,8 +31,7 @@ fn lanes(input: &str) -> Result<BTreeMap<Lane, Vec<Value>>, String> {
     validate_jsonl(input).map_err(|_| "invalid trace input".to_string())?;
     let mut output: BTreeMap<Lane, Vec<Value>> = BTreeMap::new();
     for line in input.lines() {
-        let v: Value =
-            serde_json::from_str(line).map_err(|_| "invalid trace input".to_string())?;
+        let v: Value = serde_json::from_str(line).map_err(|_| "invalid trace input".to_string())?;
         let key = (
             v["run_id"].as_str().unwrap().to_owned(),
             v["stream_id"].as_str().unwrap().to_owned(),
@@ -312,9 +311,14 @@ mod tests {
         let secret_path = "/private/customer/game.cue";
         let private_hash = "a".repeat(64);
         let secret_run = "private-run/game.cue";
-        let mut first: Value =
-            serde_json::from_str(&event(secret_run, "private-stream/game.cue", "private-cpu",
-                                        1, secret_path)).unwrap();
+        let mut first: Value = serde_json::from_str(&event(
+            secret_run,
+            "private-stream/game.cue",
+            "private-cpu",
+            1,
+            secret_path,
+        ))
+        .unwrap();
         first["details"] = serde_json::json!({
             "nested":{"file":secret_path,"sha256":private_hash},
             "list":[{"value":secret_path}]
@@ -323,14 +327,21 @@ mod tests {
         let mut second = first.clone();
         second["address"] = serde_json::json!("/private/customer/other.cue");
         let difference = first_difference(&first.to_string(), &second.to_string())
-            .unwrap().unwrap();
+            .unwrap()
+            .unwrap();
         assert_eq!(difference.kind, DifferenceKind::Changed);
         assert_eq!(difference.lane_index, 0);
         assert_eq!(difference.expected_kind, Some("bios_call"));
         assert_eq!(difference.actual_kind, Some("bios_call"));
         let displayed = format!("{difference:?}");
-        for private in [secret_path, private_hash.as_str(), secret_run,
-                        "private-stream", "private-cpu", "other.cue"] {
+        for private in [
+            secret_path,
+            private_hash.as_str(),
+            secret_run,
+            "private-stream",
+            "private-cpu",
+            "other.cue",
+        ] {
             assert!(!displayed.contains(private), "private data leaked");
         }
 
@@ -343,25 +354,49 @@ mod tests {
 
         // A multi-event ambiguous alignment must likewise remain fixed text.
         let make = |addresses: &[&str]| {
-            addresses.iter().enumerate()
+            addresses
+                .iter()
+                .enumerate()
                 .map(|(idx, addr)| {
-                    event(secret_run, "private-stream/game.cue", "private-cpu",
-                          idx as u64 + 1, addr)
+                    event(
+                        secret_run,
+                        "private-stream/game.cue",
+                        "private-cpu",
+                        idx as u64 + 1,
+                        addr,
+                    )
                 })
-                .collect::<Vec<_>>().join("\n")
+                .collect::<Vec<_>>()
+                .join("\n")
         };
         let ambiguous = first_difference(
             &make(&["before", secret_path, "after"]),
             &make(&["before", "replacement", "new", "after"]),
-        ).unwrap_err();
+        )
+        .unwrap_err();
         assert_eq!(ambiguous, "ambiguous trace alignment");
     }
 
     #[test]
     fn missing_and_extra_events_only_report_fixed_kind_and_lane_index() {
-        let first = event("secret/run/path", "secret/stream", "private/cpu", 1, "sensitive");
-        let second = format!("{}\n{}", first, event("secret/run/path", "secret/stream",
-                                                    "private/cpu", 2, "sensitive2"));
+        let first = event(
+            "secret/run/path",
+            "secret/stream",
+            "private/cpu",
+            1,
+            "sensitive",
+        );
+        let second = format!(
+            "{}\n{}",
+            first,
+            event(
+                "secret/run/path",
+                "secret/stream",
+                "private/cpu",
+                2,
+                "sensitive2"
+            )
+        );
         let extra = first_difference(&first, &second).unwrap().unwrap();
         assert_eq!(extra.kind, DifferenceKind::Extra);
         assert_eq!(extra.lane_index, 0);
@@ -369,5 +404,4 @@ mod tests {
         assert_eq!(extra.actual_kind, Some("bios_call"));
         assert!(!format!("{extra:?}").contains("secret"));
     }
-
 }
