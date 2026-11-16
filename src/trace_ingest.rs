@@ -431,5 +431,4 @@ mod tests {
         p.max_events = 2;
         assert!(normalize(&IgnoreOverflow, &json!({}), &p).is_err());
     }
-
 }
