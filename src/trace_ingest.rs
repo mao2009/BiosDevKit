@@ -37,16 +37,24 @@ pub struct Observation {
     pub numeric_details: BTreeMap<String, u64>,
 }
 
+/// Emit observations incrementally; the sink may reject the very next event.
+/// Adapters must not pre-buffer an unbounded Vec before calling the sink.
 pub trait TraceSourceAdapter {
-    fn extract(&self, source: &Value) -> Result<Vec<Observation>, String>;
+    fn visit(
+        &self,
+        source: &Value,
+        max_events: usize,
+        emit: &mut dyn FnMut(Observation) -> Result<(), String>,
+    ) -> Result<(), String>;
 }
 
 /// All names here must be curated *public* identifiers, not source filenames.
 #[derive(Debug, Clone)]
 pub struct TracePolicy {
     pub run_id: String,
-    pub streams: Vec<String>,
-    pub cpus: Vec<String>,
+    /// Every producer stream has exactly one CPU owner. A CPU may own
+    /// multiple streams. Independent per-CPU counters require distinct streams.
+    pub stream_cpu: BTreeMap<String, String>,
     pub registers: Vec<String>,
     pub numeric_details: Vec<String>,
     pub max_events: usize,
@@ -64,6 +72,9 @@ fn unique_tokens(entries: &[String]) -> bool {
     let mut seen = HashSet::new();
     entries.iter().all(|s| token(s) && seen.insert(s))
 }
+const MAX_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_POLICY_FIELDS: usize = 128;
+
 fn hex(v: u64) -> String {
     format!("0x{v:X}")
 }
@@ -78,10 +89,14 @@ pub fn normalize<A: TraceSourceAdapter>(
     policy: &TracePolicy,
 ) -> Result<String, String> {
     if !token(&policy.run_id)
-        || policy.streams.is_empty()
-        || policy.cpus.is_empty()
-        || !unique_tokens(&policy.streams)
-        || !unique_tokens(&policy.cpus)
+        || policy.stream_cpu.is_empty()
+        || policy.stream_cpu.len() > MAX_POLICY_FIELDS
+        || policy
+            .stream_cpu
+            .iter()
+            .any(|(stream, cpu)| !token(stream) || !token(cpu))
+        || policy.registers.len() > MAX_POLICY_FIELDS
+        || policy.numeric_details.len() > MAX_POLICY_FIELDS
         || !unique_tokens(&policy.registers)
         || !unique_tokens(&policy.numeric_details)
         || policy.max_events == 0
@@ -89,18 +104,15 @@ pub fn normalize<A: TraceSourceAdapter>(
     {
         return Err("invalid trace policy".into());
     }
-    // Adapter parse errors can include raw private content. Never surface them.
-    let observations = adapter
-        .extract(source)
-        .map_err(|_| "trace adapter rejected input".to_string())?;
-    if observations.is_empty() || observations.len() > policy.max_events {
-        return Err("invalid trace event count".into());
-    }
-
-    let mut lines = Vec::with_capacity(observations.len());
-    for obs in observations {
-        if !policy.streams.contains(&obs.stream_id)
-            || !policy.cpus.contains(&obs.cpu)
+    // Stream output incrementally and stop the adapter at the event budget.
+    // The input Value and adapter's internal allocations are separate concerns.
+    let mut jsonl = String::new();
+    let mut count = 0usize;
+    let mut emit = |obs: Observation| -> Result<(), String> {
+        if count >= policy.max_events {
+            return Err("event limit exceeded".into());
+        }
+        if policy.stream_cpu.get(&obs.stream_id) != Some(&obs.cpu)
             || obs
                 .registers
                 .keys()
@@ -137,9 +149,21 @@ pub fn normalize<A: TraceSourceAdapter>(
                 .collect();
             event["details"] = Value::Object(details);
         }
-        lines.push(event.to_string());
+        let line = event.to_string();
+        if jsonl.len().saturating_add(line.len()).saturating_add(1) > MAX_OUTPUT_BYTES {
+            return Err("normalized trace output limit exceeded".into());
+        }
+        jsonl.push_str(&line);
+        jsonl.push('\n');
+        count += 1;
+        Ok(())
+    };
+    adapter
+        .visit(source, policy.max_events, &mut emit)
+        .map_err(|_| "trace adapter rejected input".to_string())?;
+    if count == 0 {
+        return Err("invalid trace event count".into());
     }
-    let jsonl = format!("{}\n", lines.join("\n"));
     // Never forward validator diagnostics containing source-derived IDs.
     traces::validate_jsonl(&jsonl).map_err(|_| "normalized trace failed validation".to_string())?;
     Ok(jsonl)
@@ -152,8 +176,10 @@ mod tests {
     fn policy() -> TracePolicy {
         TracePolicy {
             run_id: "synthetic-run".into(),
-            streams: vec!["lane-a".into(), "lane-b".into()],
-            cpus: vec!["cpu0".into(), "cpu1".into()],
+            stream_cpu: BTreeMap::from([
+                ("lane-a".into(), "cpu0".into()),
+                ("lane-b".into(), "cpu1".into()),
+            ]),
             registers: vec!["a".into(), "r0".into()],
             numeric_details: vec!["bytes".into(), "device_code".into()],
             max_events: 10,
@@ -173,20 +199,29 @@ mod tests {
     // One CPU: a compact instruction-hook dialect.
     struct SingleCpu;
     impl TraceSourceAdapter for SingleCpu {
-        fn extract(&self, data: &Value) -> Result<Vec<Observation>, String> {
+        fn visit(
+            &self,
+            data: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Observation) -> Result<(), String>,
+        ) -> Result<(), String> {
             let tick = data["tick"].as_u64().ok_or("private-path /game.cue")?;
             let mut x = observation();
             x.sequence = tick;
-            Ok(vec![x])
+            emit(x)
         }
     }
     // Two CPUs: a distinct, device-centric event dialect.
     struct MultiCpu;
     impl TraceSourceAdapter for MultiCpu {
-        fn extract(&self, data: &Value) -> Result<Vec<Observation>, String> {
+        fn visit(
+            &self,
+            data: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Observation) -> Result<(), String>,
+        ) -> Result<(), String> {
             let code = data["device"]["code"].as_u64().ok_or("bad device event")?;
-            Ok(vec![
-                Observation {
+            emit(Observation {
                     stream_id: "lane-b".into(),
                     cpu: "cpu1".into(),
                     sequence: 0,
@@ -194,8 +229,8 @@ mod tests {
                     registers: BTreeMap::new(),
                     address: None,
                     numeric_details: BTreeMap::from([("device_code".into(), code)]),
-                },
-                Observation {
+                })?;
+            emit(Observation {
                     stream_id: "lane-a".into(),
                     cpu: "cpu0".into(),
                     sequence: 7,
@@ -203,14 +238,21 @@ mod tests {
                     registers: BTreeMap::from([("r0".into(), 0x1234)]),
                     address: None,
                     numeric_details: BTreeMap::new(),
-                },
-            ])
+                })
         }
     }
     struct Fixed(Vec<Observation>);
     impl TraceSourceAdapter for Fixed {
-        fn extract(&self, _: &Value) -> Result<Vec<Observation>, String> {
-            Ok(self.0.clone())
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Observation) -> Result<(), String>,
+        ) -> Result<(), String> {
+            for item in &self.0 {
+                emit(item.clone())?;
+            }
+            Ok(())
         }
     }
 
@@ -253,11 +295,52 @@ mod tests {
         bad.run_id = "f".repeat(64);
         assert!(normalize(&SingleCpu, &json!({"tick":0}), &bad).is_err());
         let mut bad = policy();
-        bad.streams = vec!["lane-a".into(), "lane-a".into()];
+        bad.stream_cpu.clear();
         assert!(normalize(&SingleCpu, &json!({"tick":0}), &bad).is_err());
         let mut bad = policy();
         bad.max_events = 0;
         assert!(normalize(&SingleCpu, &json!({"tick":0}), &bad).is_err());
         assert!(normalize(&Fixed(vec![]), &json!({}), &policy()).is_err());
     }
+    #[test]
+    fn independently_numbered_cpu_lanes_are_valid_but_shared_stream_is_not() {
+        let first = observation();
+        let mut other = observation();
+        other.cpu = "cpu1".into();
+        other.stream_id = "lane-b".into();
+        // Independent sequence zero for both CPU streams is valid.
+        let jsonl = normalize(&Fixed(vec![first.clone(), other.clone()]), &json!({}), &policy())
+            .unwrap();
+        assert_eq!(traces::validate_jsonl(&jsonl), Ok(2));
+        other.stream_id = "lane-a".into();
+        other.sequence = 1; // still invalid: the shared stream has a different CPU owner
+        assert!(normalize(&Fixed(vec![first, other]), &json!({}), &policy()).is_err());
+    }
+
+    struct Flood(std::cell::Cell<usize>);
+    impl TraceSourceAdapter for Flood {
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Observation) -> Result<(), String>,
+        ) -> Result<(), String> {
+            for n in 0..100 {
+                self.0.set(n + 1);
+                let mut item = observation();
+                item.sequence = n as u64;
+                emit(item)?;
+            }
+            Ok(())
+        }
+    }
+    #[test]
+    fn fails_during_emission_not_after_buffering_all_events() {
+        let mut p = policy();
+        p.max_events = 2;
+        let flood = Flood(std::cell::Cell::new(0));
+        assert!(normalize(&flood, &json!({}), &p).is_err());
+        assert_eq!(flood.0.get(), 3);
+    }
+
 }
