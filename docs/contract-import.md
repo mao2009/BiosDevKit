@@ -16,12 +16,29 @@ Every imported API is a **candidate**, even if the upstream adapter reports
 distinct from importer `verification=UNVERIFIED`. Requested execution or
 release eligibility is rejected, not silently accepted or upgraded.
 
-The importer retains contract fields (`id`, `name`, `entry_point`,
-`inputs`, `outputs`, `side_effects`) and tracks unsupported source fields
-under `unknown_source_fields`. Adapters must surface unsupported material
-there, not fabricate values. CPU-specific meanings and syntaxes are opaque to
-the core. The two unit-test source dialects demonstrate 8-bit registers and
-32-bit multicore registers through the same path.
+The importer retains approved contract fields (`id`, `name`,
+`entry_point`, `inputs`, `outputs`, `side_effects`) and tracks
+approved unsupported source field *names* under `unknown_source_fields`.
+Adapters must surface unsupported material there, not fabricate values.
+
+**Source data is not an authorization to publish.** The independent caller
+must provide a `SourcePin.publication: PublicationPolicy` of specifically
+approved public API IDs, names, entry points, register names/descriptions,
+side effects, and unknown-field names. Every source-derived value must
+match an approved entry; nested register structures and oversized/non-numeric
+register widths are rejected rather than passed through. The core additionally
+rejects path-like entry points and slash-containing descriptions, media file
+extensions, and 40/64-character opaque IDs. Unapproved candidates cause
+the *entire* import to fail, even if an adapter ignores the sink error.
+No partial contract is returned.
+
+Only a separately reviewed public catalog is a trusted publication authority:
+the importer cannot independently confirm the catalog author, identify a
+secret embedded in an otherwise public-looking label, or authenticate
+license/ABI evidence. Real source adapters must keep their catalogs separate
+from untrusted source data. CPU-specific meanings and syntaxes remain opaque
+to the core. Unit tests cover 8-bit and 32-bit synthetic dialects and
+negative paths, 64-character hashes, nested values and ignored sink errors.
 
 ## Scope boundaries
 
