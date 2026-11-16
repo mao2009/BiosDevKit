@@ -441,5 +441,4 @@ mod tests {
         let catalog = [registered("single", RunnerScope::Synthetic)];
         assert!(import(&IgnoreRejection, &json!({}), &catalog).is_err());
     }
-
 }
