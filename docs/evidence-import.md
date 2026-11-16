@@ -27,3 +27,17 @@ a separately reviewed, explicit safe encoding.
 
 This module is independent of PC Engine, Mega-CD, Saturn and their emulators.
 Machine-specific adapters are later work after the source audit (#19).
+
+## Extraction budget
+
+`EvidenceAdapter::visit` emits one `SourceRecord` at a time through a
+fallible sink. The core enforces a maximum of 10,000 records **and** an upper
+bound of the registered test count, stopping the adapter on the first excess
+record. Adapters receive this limit and must propagate sink errors. They must
+not pre-buffer an unbounded `Vec<SourceRecord>` or bypass backpressure.
+
+The input is an already-decoded `serde_json::Value`, and the catalog is
+caller-supplied. This interface does **not** bound memory used for upstream
+file reads / JSON decoding, oversized catalog construction, or malicious
+adapter allocations. Any file-backed importer must apply pre-parse input
+byte/depth limits and source-specific parsing limits before calling it.
