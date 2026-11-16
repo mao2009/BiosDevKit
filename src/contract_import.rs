@@ -120,7 +120,10 @@ pub fn import<A: SourceAdapter>(
             || candidate.outputs.len() > MAX_REGISTERS
             || candidate.side_effects.len() > MAX_FIELDS
             || candidate.unknown_fields.len() > MAX_FIELDS
-            || candidate.side_effects.iter().any(|v| v.len() > MAX_ENTRY_BYTES)
+            || candidate
+                .side_effects
+                .iter()
+                .any(|v| v.len() > MAX_ENTRY_BYTES)
         {
             return Err("candidate resource limit exceeded".into());
         }
@@ -406,7 +409,13 @@ mod tests {
     fn rejects_oversized_single_candidate_before_output() {
         let mut bad = candidate("TEST", "symbol:synthetic");
         bad.side_effects = vec!["x".repeat(MAX_ENTRY_BYTES + 1)];
-        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+        assert!(import(
+            &Fixed(vec![bad]),
+            &json!({}),
+            &pin(),
+            "synthetic",
+            "synthetic"
+        )
+        .is_err());
     }
-
 }
