@@ -4,6 +4,20 @@ use crate::contracts;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
+/// A caller-curated **public** vocabulary, independent from the untrusted
+/// SourceAdapter. Every exported source-derived string must be explicitly
+/// registered here. A catalog is an authorization decision, not a proof of ABI.
+#[derive(Debug, Clone)]
+pub struct PublicationPolicy {
+    pub api_ids: HashSet<String>,
+    pub api_names: HashSet<String>,
+    pub entry_points: HashSet<String>,
+    pub register_names: HashSet<String>,
+    pub register_meanings: HashSet<String>,
+    pub side_effects: HashSet<String>,
+    pub unknown_source_fields: HashSet<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SourcePin {
     /// Opaque, public source identifier (not a filesystem path).
@@ -14,6 +28,8 @@ pub struct SourcePin {
     pub sha256: String,
     /// An externally reviewed rights decision; not authenticated by this crate.
     pub rights_approved: bool,
+    /// Only fields matching this independent public policy may be serialized.
+    pub publication: PublicationPolicy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +96,78 @@ fn is_token(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b':'))
 }
+/// Structured public identifiers cannot contain paths, media file extensions
+/// or hash-looking SHA-1/SHA-256 values. Membership in the publication
+/// allowlist is additionally mandatory.
+fn public_identifier(s: &str) -> bool {
+    is_token(s)
+        && s.len() <= 64
+        && !matches!(s.len(), 40 | 64) // conservative: don't publish digest IDs
+        && ![".cue", ".bin", ".rom", ".iso", ".chd", ".pce"]
+            .iter()
+            .any(|suffix| s.to_ascii_lowercase().ends_with(suffix))
+}
+fn public_entry_point(s: &str) -> bool {
+    if let Some(symbol) = s.strip_prefix("symbol:") {
+        return public_identifier(symbol);
+    }
+    s.strip_prefix("0x").is_some_and(|digits| {
+        !digits.is_empty() && digits.len() <= 16 && digits.bytes().all(|b| b.is_ascii_hexdigit())
+    })
+}
+fn public_description(s: &str) -> bool {
+    !s.trim().is_empty()
+        && s.len() <= 128
+        && s.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b' ' | b'_' | b'-' | b',' | b'(' | b')')
+        })
+}
+fn approved_registers(registers: &[Value], publication: &PublicationPolicy) -> bool {
+    registers.iter().all(|entry| {
+        let Some(obj) = entry.as_object() else {
+            return false;
+        };
+        if !(2..=3).contains(&obj.len())
+            || obj
+                .keys()
+                .any(|key| !matches!(key.as_str(), "name" | "meaning" | "width_bits"))
+        {
+            return false;
+        }
+        let Some(name) = obj.get("name").and_then(Value::as_str) else {
+            return false;
+        };
+        let Some(meaning) = obj.get("meaning").and_then(Value::as_str) else {
+            return false;
+        };
+        if !public_identifier(name)
+            || !public_description(meaning)
+            || !publication.register_names.contains(name)
+            || !publication.register_meanings.contains(meaning)
+        {
+            return false;
+        }
+        obj.get("width_bits").is_none_or(|width| {
+            width.as_u64().is_some_and(|bits| (1..=1024).contains(&bits))
+        })
+    })
+}
+fn approved_candidate(candidate: &Candidate, publication: &PublicationPolicy) -> bool {
+    public_identifier(&candidate.id)
+        && public_identifier(&candidate.name)
+        && public_entry_point(&candidate.entry_point)
+        && publication.api_ids.contains(&candidate.id)
+        && publication.api_names.contains(&candidate.name)
+        && publication.entry_points.contains(&candidate.entry_point)
+        && approved_registers(&candidate.inputs, publication)
+        && approved_registers(&candidate.outputs, publication)
+        && candidate.side_effects.iter().all(|side_effect| {
+            public_description(side_effect) && publication.side_effects.contains(side_effect)
+        })
+        && candidate.unknown_fields.iter().all(|name| {
+            public_identifier(name) && publication.unknown_source_fields.contains(name)
+        })
+}
 fn is_lower_hex(value: &str, len: usize) -> bool {
     value.len() == len
         && value
@@ -111,7 +199,7 @@ pub fn import<A: SourceAdapter>(
     // has already been created. This is a cap on output, not a source-file cap.
     let mut api_ids = HashSet::new();
     let mut apis = Vec::new();
-    let mut emit = |candidate: Candidate| -> Result<(), String> {
+    let mut validate_and_store = |candidate: Candidate| -> Result<(), String> {
         if apis.len() >= MAX_CANDIDATES {
             return Err("candidate limit exceeded".into());
         }
@@ -127,9 +215,7 @@ pub fn import<A: SourceAdapter>(
         {
             return Err("candidate resource limit exceeded".into());
         }
-        if !is_token(&candidate.id)
-            || !is_token(&candidate.name)
-            || candidate.entry_point.is_empty()
+        if !approved_candidate(&candidate, &pin.publication)
             || candidate.source_execution_permitted
             || candidate.source_release_eligible
             || !api_ids.insert(candidate.id.clone())
@@ -168,9 +254,23 @@ pub fn import<A: SourceAdapter>(
         apis.push(record);
         Ok(())
     };
-    adapter
-        .visit(source, MAX_CANDIDATES, &mut emit)
-        .map_err(|_| "source adapter rejected input".to_string())?;
+    // Never accept a partial document if an adapter ignores a rejected
+    // candidate, including an unauthorized free-form string.
+    let mut sink_rejected = false;
+    let mut emit = |candidate: Candidate| -> Result<(), String> {
+        if sink_rejected {
+            return Err("candidate sink already rejected input".into());
+        }
+        let result = validate_and_store(candidate);
+        if result.is_err() {
+            sink_rejected = true;
+        }
+        result
+    };
+    let result = adapter.visit(source, MAX_CANDIDATES, &mut emit);
+    if sink_rejected || result.is_err() {
+        return Err("source adapter rejected input".into());
+    }
     if apis.is_empty() {
         return Err("no candidate APIs".into());
     }
@@ -198,6 +298,23 @@ mod tests {
             revision: "a".repeat(40),
             sha256: "b".repeat(64),
             rights_approved: true,
+            publication: PublicationPolicy {
+                api_ids: (0..=MAX_CANDIDATES)
+                    .map(|index| format!("api{index}"))
+                    .collect(),
+                api_names: ["TEST", "TEST_8BIT", "TEST_MULTICPU"]
+                    .into_iter().map(str::to_string).collect(),
+                entry_points: ["0x00", "0xE000", "symbol:test", "symbol:synthetic"]
+                    .into_iter().map(str::to_string).collect(),
+                register_names: ["A", "r0"]
+                    .into_iter().map(str::to_string).collect(),
+                register_meanings: ["candidate output", "candidate argument", "test"]
+                    .into_iter().map(str::to_string).collect(),
+                side_effects: ["changes status flags"]
+                    .into_iter().map(str::to_string).collect(),
+                unknown_source_fields: ["timing", "same"]
+                    .into_iter().map(str::to_string).collect(),
+            },
         }
     }
     fn candidate(name: &str, entry: &str) -> Candidate {
@@ -418,4 +535,81 @@ mod tests {
         )
         .is_err());
     }
+    #[test]
+    fn rejects_private_paths_hashes_and_nested_register_data_even_if_adapter_emits_them() {
+        let private_path = "/private/customer/game.cue";
+        let private_hash = "e".repeat(64);
+        let baseline = candidate("TEST", "0x00");
+
+        let mut bad = baseline.clone();
+        bad.entry_point = private_path.into();
+        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+
+        let mut bad = baseline.clone();
+        bad.name = "customer_game.rom".into();
+        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+
+        let mut bad = baseline.clone();
+        bad.inputs = vec![json!({
+            "name": "A", "meaning": "test", "width_bits": 8,
+            "nested": {"local": private_path, "media_hash": private_hash}
+        })];
+        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+
+        let mut bad = baseline.clone();
+        bad.outputs = vec![json!({"name":"A","meaning":private_path,"width_bits":8})];
+        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+
+        let mut bad = baseline.clone();
+        bad.side_effects.push(private_path.into());
+        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+
+        let mut bad = baseline.clone();
+        bad.unknown_fields.push("private_media.rom".into());
+        assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "synthetic", "synthetic").is_err());
+
+        // Even adding an unsafe entry to the caller catalog does not bypass
+        // the path/filename/description gate.
+        let mut policy = pin();
+        policy.publication.side_effects.insert(private_path.into());
+        let mut bad = baseline.clone();
+        bad.side_effects.push(private_path.into());
+        assert!(import(&Fixed(vec![bad]), &json!({}), &policy, "synthetic", "synthetic").is_err());
+
+        let mut missing = pin();
+        missing.publication.api_ids.clear();
+        assert!(import(&Fixed(vec![baseline]), &json!({}), &missing, "synthetic", "synthetic").is_err());
+    }
+
+    #[test]
+    fn approved_public_descriptions_are_kept_exactly() {
+        let mut candidate = candidate("TEST", "0x00");
+        candidate.inputs.push(json!({"name":"A","meaning":"test","width_bits":8}));
+        candidate.side_effects.push("changes status flags".into());
+        let result = import(&Fixed(vec![candidate]), &json!({}),
+                            &pin(), "synthetic", "synthetic").unwrap();
+        assert_eq!(result.document["apis"][0]["inputs"][0]["meaning"], "test");
+        assert_eq!(result.document["apis"][0]["side_effects"][0], "changes status flags");
+        assert_eq!(result.document["apis"][0]["platform_extension"]["biosdevkit_import"]["verification"], "UNVERIFIED");
+    }
+
+    struct IgnoreRejection;
+    impl SourceAdapter for IgnoreRejection {
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Candidate) -> Result<(), String>,
+        ) -> Result<(), String> {
+            let _ = emit(candidate("TEST", "/private/media/game.cue"));
+            let _ = emit(candidate("TEST", "0x00"));
+            Ok(())
+        }
+    }
+    #[test]
+    fn discarded_rejection_cannot_create_partial_published_contract() {
+        assert!(import(&IgnoreRejection, &json!({}), &pin(),
+                       "synthetic", "synthetic").is_err());
+    }
+
 }
