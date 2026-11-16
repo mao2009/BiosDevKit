@@ -1,0 +1,302 @@
+//! Resolve opaque artifact IDs through an explicit mapping.
+//! Linux x86_64/aarch64 uses openat2 handle-relative, no-symlink traversal;
+//! other supported build platforms return an explicit unsupported error.
+//! Path containment does not authenticate file contents or reject hardlinks.
+use std::collections::HashMap;
+#[cfg(test)]
+use std::fs;
+use std::fs::File;
+use std::path::{Component, Path, PathBuf};
+
+fn safe_components(path: &Path) -> Result<Vec<std::ffi::OsString>, String> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(piece) => parts.push(piece.to_os_string()),
+            _ => return Err("absolute, traversal, or non-normal path".into()),
+        }
+    }
+    if parts.is_empty() {
+        return Err("empty relative path".into());
+    }
+    Ok(parts)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_open(root: &Path, pieces: &[std::ffi::OsString]) -> Result<File, String> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+
+    #[repr(C)]
+    struct OpenHow {
+        flags: u64,
+        mode: u64,
+        resolve: u64,
+    }
+    unsafe extern "C" {
+        fn syscall(number: std::ffi::c_long, ...) -> std::ffi::c_long;
+    }
+    // Linux openat2 ABI: syscall 437 on x86_64 and aarch64.
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+    const OPENAT2: std::ffi::c_long = 437;
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    compile_error!("Linux openat2 syscall number has not been verified for this architecture");
+    const O_CLOEXEC: u64 = 0o2000000;
+    const O_DIRECTORY: u64 = 0o200000;
+    const O_PATH: u64 = 0o10000000;
+    const RESOLVE_NO_SYMLINKS: u64 = 0x04;
+    const RESOLVE_BENEATH: u64 = 0x08;
+
+    let root_path =
+        CString::new(root.as_os_str().as_bytes()).map_err(|_| "root contains NUL".to_string())?;
+    let root_how = OpenHow {
+        flags: O_PATH | O_DIRECTORY | O_CLOEXEC,
+        mode: 0,
+        resolve: RESOLVE_NO_SYMLINKS,
+    };
+    // AT_FDCWD is -100. The root is opened atomically with no symlink traversal,
+    // including its ancestors. A writable ancestor can change which root is
+    // selected but cannot permit escape from the opened root descriptor.
+    let root_fd = unsafe {
+        syscall(
+            OPENAT2,
+            -100isize,
+            root_path.as_ptr(),
+            &root_how,
+            std::mem::size_of::<OpenHow>(),
+        )
+    };
+    if root_fd < 0 {
+        return Err(format!(
+            "safe root open failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let root_handle = unsafe { File::from_raw_fd(root_fd as i32) };
+    let relative = pieces.iter().map(|v| v.as_bytes()).collect::<Vec<_>>();
+    let mut bytes = Vec::new();
+    for (idx, part) in relative.iter().enumerate() {
+        if idx > 0 {
+            bytes.push(b'/');
+        }
+        bytes.extend_from_slice(part);
+    }
+    let rel_path = CString::new(bytes).map_err(|_| "mapped path contains NUL".to_string())?;
+    let file_how = OpenHow {
+        flags: O_CLOEXEC,
+        mode: 0,
+        resolve: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS,
+    };
+    let fd = unsafe {
+        syscall(
+            OPENAT2,
+            root_handle.as_raw_fd(),
+            rel_path.as_ptr(),
+            &file_how,
+            std::mem::size_of::<OpenHow>(),
+        )
+    };
+    if fd < 0 {
+        return Err(format!(
+            "safe artifact open failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let file = unsafe { File::from_raw_fd(fd as i32) };
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("artifact is not a regular file".into());
+    }
+    Ok(file)
+}
+
+/// Resolve a declared logical identifier, never interpreting the ID as a path.
+/// Linux openat2 confines lookup to the opened root during concurrent path
+/// renames; callers must separately trust file contents and authorized writers.
+pub fn open_mapped(
+    root: &Path,
+    mapping: &HashMap<String, PathBuf>,
+    logical: &str,
+) -> Result<File, String> {
+    if logical.is_empty() {
+        return Err("empty logical identifier".into());
+    }
+    let rel = mapping
+        .get(logical)
+        .ok_or("undeclared logical identifier")?;
+    let pieces = safe_components(rel)?;
+    // Only Linux currently has a race-resistant implementation. Unsupported
+    // platforms fail closed instead of returning a path-race-vulnerable handle.
+    #[cfg(target_os = "linux")]
+    {
+        linux_open(root, &pieces)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (root, pieces);
+        Err("race-safe artifact opening is unsupported on this platform".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn tmp() -> PathBuf {
+        let t = std::env::temp_dir().join(format!(
+            "bdk-resolver-{}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            TEMP_COUNTER.fetch_add(1, AtomicOrdering::Relaxed)
+        ));
+        fs::create_dir(&t).unwrap();
+        t
+    }
+
+    #[test]
+    fn mapping_accepts_regular_and_rejects_attacks() {
+        let root = tmp();
+        fs::create_dir(root.join("sub")).unwrap();
+        fs::write(root.join("sub/data.bin"), b"synthetic").unwrap();
+        let mut map = HashMap::new();
+        map.insert("opaque".into(), PathBuf::from("sub/data.bin"));
+        #[cfg(target_os = "linux")]
+        assert!(open_mapped(&root, &map, "opaque").is_ok());
+        #[cfg(not(target_os = "linux"))]
+        assert!(open_mapped(&root, &map, "opaque").is_err());
+        assert!(open_mapped(&root, &map, "unknown").is_err());
+        for bad in [
+            "../outside",
+            "/tmp/outside",
+            "sub/../data.bin",
+            "",
+            "sub/nope",
+        ] {
+            map.insert("opaque".into(), PathBuf::from(bad));
+            assert!(open_mapped(&root, &map, "opaque").is_err(), "{bad}");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_directory_and_missing_file() {
+        let root = tmp();
+        fs::create_dir(root.join("dir")).unwrap();
+        let map = HashMap::from([("id".into(), PathBuf::from("dir"))]);
+        assert!(open_mapped(&root, &map, "id").is_err());
+        assert!(open_mapped(&root, &map, "unmapped").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_root_and_intermediate_symlinks() {
+        use std::os::unix::fs::symlink;
+        let root = tmp();
+        let alias = root.with_extension("alias");
+        fs::create_dir(root.join("inside")).unwrap();
+        fs::write(root.join("inside/data"), b"data").unwrap();
+        symlink(&root, &alias).unwrap();
+        let mapping = HashMap::from([("id".into(), PathBuf::from("inside/data"))]);
+        assert!(open_mapped(&alias, &mapping, "id").is_err());
+        symlink(root.join("inside"), root.join("other")).unwrap();
+        let submap = HashMap::from([("id".into(), PathBuf::from("other/data"))]);
+        assert!(open_mapped(&root, &submap, "id").is_err());
+        fs::remove_file(alias).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn concurrent_symlink_swap_never_reads_outside_root() {
+        use std::io::Read;
+        use std::os::unix::fs::symlink;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+        let root = tmp();
+        let outside = tmp();
+        fs::write(outside.join("data"), b"OUTSID").unwrap();
+        let path = root.join("swap");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("data"), b"inside").unwrap();
+        let mapping = HashMap::from([("id".into(), PathBuf::from("swap/data"))]);
+        // Prove that the resolver can return a valid file, independently of
+        // the scheduler's choice during the racing section.
+        let mut baseline = Vec::new();
+        open_mapped(&root, &mapping, "id")
+            .unwrap()
+            .read_to_end(&mut baseline)
+            .unwrap();
+        assert_eq!(baseline, b"inside");
+
+        let running = Arc::new(AtomicBool::new(true));
+        let swaps = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Barrier::new(2));
+        let active = Arc::clone(&running);
+        let swap_count = Arc::clone(&swaps);
+        let gate = Arc::clone(&started);
+        let root_clone = root.clone();
+        let outside_clone = outside.clone();
+        let attacker = std::thread::spawn(move || {
+            let path = root_clone.join("swap");
+            // Publish at least one malicious symlink before the reader starts.
+            fs::remove_dir_all(&path).unwrap();
+            symlink(&outside_clone, &path).unwrap();
+            swap_count.fetch_add(1, Ordering::SeqCst);
+            gate.wait();
+            while active.load(Ordering::Relaxed) {
+                let _ = fs::remove_file(&path);
+                let _ = fs::remove_dir_all(&path);
+                if symlink(&outside_clone, &path).is_ok() {
+                    swap_count.fetch_add(1, Ordering::Relaxed);
+                }
+                let _ = fs::remove_file(&path);
+                if fs::create_dir(&path).is_ok() {
+                    let staged = root_clone.join("staged-data");
+                    if fs::write(&staged, b"inside").is_ok() {
+                        let _ = fs::rename(&staged, path.join("data"));
+                    }
+                }
+                std::thread::yield_now();
+            }
+        });
+        started.wait();
+        let mut opened = 0usize;
+        for _ in 0..10000 {
+            if let Ok(mut file) = open_mapped(&root, &mapping, "id") {
+                let mut content = Vec::new();
+                file.read_to_end(&mut content).unwrap();
+                assert_eq!(content, b"inside");
+                opened += 1;
+            }
+            std::thread::yield_now();
+        }
+        running.store(false, Ordering::Relaxed);
+        attacker.join().unwrap();
+        assert!(
+            swaps.load(Ordering::Relaxed) > 0,
+            "no symlink swap executed"
+        );
+        assert!(opened > 0, "no successful in-root open during race");
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_is_rejected() {
+        use std::os::unix::fs::symlink;
+        let root = tmp();
+        fs::write(root.join("data"), b"x").unwrap();
+        symlink("data", root.join("link")).unwrap();
+        let map = HashMap::from([("opaque".into(), PathBuf::from("link"))]);
+        assert!(open_mapped(&root, &map, "opaque").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+}
