@@ -408,5 +408,4 @@ mod tests {
         assert!(import(&adapter, &json!({}), &registrations).is_err());
         assert_eq!(adapter.0.get(), 3);
     }
-
 }
