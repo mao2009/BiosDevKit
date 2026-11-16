@@ -113,7 +113,7 @@ pub fn normalize<A: TraceSourceAdapter>(
     // The input Value and adapter's internal allocations are separate concerns.
     let mut jsonl = String::new();
     let mut count = 0usize;
-    let mut emit = |obs: Observation| -> Result<(), String> {
+    let mut validate_and_store = |obs: Observation| -> Result<(), String> {
         if count >= policy.max_events {
             return Err("event limit exceeded".into());
         }
@@ -163,9 +163,23 @@ pub fn normalize<A: TraceSourceAdapter>(
         count += 1;
         Ok(())
     };
-    adapter
-        .visit(source, policy.max_events, &mut emit)
-        .map_err(|_| "trace adapter rejected input".to_string())?;
+    // A buggy adapter might ignore an error from the sink and return Ok.
+    // Never allow that to turn a rejected trace into a truncated success.
+    let mut sink_rejected = false;
+    let mut emit = |obs: Observation| -> Result<(), String> {
+        if sink_rejected {
+            return Err("trace sink already rejected input".into());
+        }
+        let result = validate_and_store(obs);
+        if result.is_err() {
+            sink_rejected = true;
+        }
+        result
+    };
+    let visit_result = adapter.visit(source, policy.max_events, &mut emit);
+    if sink_rejected || visit_result.is_err() {
+        return Err("trace adapter rejected input".into());
+    }
     if count == 0 {
         return Err("invalid trace event count".into());
     }
@@ -374,4 +388,48 @@ mod tests {
         item.numeric_details.insert("unknown_detail".into(), 0);
         assert!(normalize(&Fixed(vec![item]), &json!({}), &p).is_err());
     }
+    struct IgnoreRejection;
+    impl TraceSourceAdapter for IgnoreRejection {
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Observation) -> Result<(), String>,
+        ) -> Result<(), String> {
+            let _ = emit(observation());
+            let mut wrong = observation();
+            wrong.cpu = "not_registered".into();
+            wrong.sequence = 1;
+            let _ = emit(wrong); // ignored by a buggy adapter
+            Ok(())
+        }
+    }
+    #[test]
+    fn ignored_sink_rejection_does_not_return_partially_valid_trace() {
+        assert!(normalize(&IgnoreRejection, &json!({}), &policy()).is_err());
+    }
+
+    struct IgnoreOverflow;
+    impl TraceSourceAdapter for IgnoreOverflow {
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(Observation) -> Result<(), String>,
+        ) -> Result<(), String> {
+            for sequence in 0..3 {
+                let mut item = observation();
+                item.sequence = sequence;
+                let _ = emit(item);
+            }
+            Ok(())
+        }
+    }
+    #[test]
+    fn ignored_event_limit_is_never_a_successful_truncated_trace() {
+        let mut p = policy();
+        p.max_events = 2;
+        assert!(normalize(&IgnoreOverflow, &json!({}), &p).is_err());
+    }
+
 }
