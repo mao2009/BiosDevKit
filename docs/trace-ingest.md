@@ -6,7 +6,10 @@ a Geargrafx, Mega-CD or Saturn implementation. Concrete emulator bindings
 belong in separately reviewed adapter issues.
 
 The core requires an explicit, public `TracePolicy` for run, CPU and stream
-IDs, register keys, and numeric detail fields. Input adapters produce typed
+IDs, register keys, and numeric detail fields. The CPU/stream binding is a
+bounded map; register/detail allowlists are indexed once into hash sets before
+event processing (at most 128 names of each type), avoiding per-event scans.
+Input adapters produce typed
 `Observation` values with integer registers/addresses, avoiding free-form
 logs, filenames, ROM/media hashes and raw byte strings. The normalized output
 retains only allowlisted fields. Adapter errors and downstream validator
