@@ -65,13 +65,15 @@ pub struct ImportedContract {
 fn is_token(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
-        && value.bytes().all(|b| {
-            b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b':')
-        })
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b':'))
 }
 fn is_lower_hex(value: &str, len: usize) -> bool {
     value.len() == len
-        && value.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 /// Fail closed on invalid metadata; do not echo untrusted source data in errors.
@@ -189,8 +191,11 @@ mod tests {
     struct EightBit;
     impl SourceAdapter for EightBit {
         fn extract(&self, source: &Value) -> Result<Vec<Candidate>, String> {
-            let first = source["slots"].as_array().ok_or("bad slots")?
-                .first().ok_or("empty")?;
+            let first = source["slots"]
+                .as_array()
+                .ok_or("bad slots")?
+                .first()
+                .ok_or("empty")?;
             let mut item = candidate("TEST_8BIT", "0xE000");
             item.id = first["key"].as_str().ok_or("missing key")?.to_string();
             item.outputs = vec![json!({"name":"A","meaning":"candidate output","width_bits":8})];
@@ -200,7 +205,9 @@ mod tests {
     struct MultiCpu;
     impl SourceAdapter for MultiCpu {
         fn extract(&self, source: &Value) -> Result<Vec<Candidate>, String> {
-            let symbol = source["exports"]["entry"].as_str().ok_or("missing symbol")?;
+            let symbol = source["exports"]["entry"]
+                .as_str()
+                .ok_or("missing symbol")?;
             let mut item = candidate("TEST_MULTICPU", &format!("symbol:{symbol}"));
             item.inputs = vec![json!({"name":"r0","meaning":"candidate argument","width_bits":32})];
             item.source_claim = SourceClaim::ClaimedVerified;
@@ -210,23 +217,62 @@ mod tests {
     #[test]
     fn two_architectures_share_a_single_import_path_without_promotion() {
         for (doc, platform, arch) in [
-            (import(&EightBit, &json!({"slots":[{"key":"api0"}]}),
-                    &pin(), "synthetic-a", "8bit").unwrap(), "synthetic-a", "8bit"),
-            (import(&MultiCpu, &json!({"exports":{"entry":"test"}}),
-                    &pin(), "synthetic-b", "multicpu").unwrap(), "synthetic-b", "multicpu"),
+            (
+                import(
+                    &EightBit,
+                    &json!({"slots":[{"key":"api0"}]}),
+                    &pin(),
+                    "synthetic-a",
+                    "8bit",
+                )
+                .unwrap(),
+                "synthetic-a",
+                "8bit",
+            ),
+            (
+                import(
+                    &MultiCpu,
+                    &json!({"exports":{"entry":"test"}}),
+                    &pin(),
+                    "synthetic-b",
+                    "multicpu",
+                )
+                .unwrap(),
+                "synthetic-b",
+                "multicpu",
+            ),
         ] {
             assert_eq!(doc.imported_candidates, 1);
             assert_eq!(doc.verified_abis, 0);
             assert_eq!(doc.document["platform"], platform);
             assert_eq!(doc.document["architecture"], arch);
-            assert_eq!(doc.document["apis"][0]["platform_extension"]["biosdevkit_import"]["verification"], "UNVERIFIED");
-            assert_eq!(doc.document["apis"][0]["platform_extension"]["biosdevkit_import"]["execution_permitted"], false);
-            assert_eq!(doc.document["apis"][0]["platform_extension"]["biosdevkit_import"]["release_eligible"], false);
+            assert_eq!(
+                doc.document["apis"][0]["platform_extension"]["biosdevkit_import"]["verification"],
+                "UNVERIFIED"
+            );
+            assert_eq!(
+                doc.document["apis"][0]["platform_extension"]["biosdevkit_import"]
+                    ["execution_permitted"],
+                false
+            );
+            assert_eq!(
+                doc.document["apis"][0]["platform_extension"]["biosdevkit_import"]
+                    ["release_eligible"],
+                false
+            );
         }
-        let multi = import(&MultiCpu, &json!({"exports":{"entry":"test"}}),
-                           &pin(), "synthetic-b", "multicpu").unwrap();
-        assert_eq!(multi.document["apis"][0]["platform_extension"]["biosdevkit_import"]["source_claim"],
-                   "CLAIMED_VERIFIED");
+        let multi = import(
+            &MultiCpu,
+            &json!({"exports":{"entry":"test"}}),
+            &pin(),
+            "synthetic-b",
+            "multicpu",
+        )
+        .unwrap();
+        assert_eq!(
+            multi.document["apis"][0]["platform_extension"]["biosdevkit_import"]["source_claim"],
+            "CLAIMED_VERIFIED"
+        );
     }
     struct Fixed(Vec<Candidate>);
     impl SourceAdapter for Fixed {
@@ -244,18 +290,36 @@ mod tests {
         assert!(import(&Fixed(vec![unsafe_item]), &json!({}), &pin(), "x", "y").is_err());
         let mut bad_pin = pin();
         bad_pin.rights_approved = false;
-        assert!(import(&EightBit, &json!({"slots":[{"key":"api0"}]}),
-                       &bad_pin, "x", "y").is_err());
+        assert!(import(
+            &EightBit,
+            &json!({"slots":[{"key":"api0"}]}),
+            &bad_pin,
+            "x",
+            "y"
+        )
+        .is_err());
         bad_pin = pin();
         bad_pin.sha256 = "x".repeat(64);
-        assert!(import(&EightBit, &json!({"slots":[{"key":"api0"}]}),
-                       &bad_pin, "x", "y").is_err());
+        assert!(import(
+            &EightBit,
+            &json!({"slots":[{"key":"api0"}]}),
+            &bad_pin,
+            "x",
+            "y"
+        )
+        .is_err());
     }
     #[test]
     fn rejects_duplicates_malformed_fields_and_missing_source() {
         let a = candidate("TEST", "0x00");
-        assert!(import(&Fixed(vec![a.clone(), a.clone()]), &json!({}),
-                       &pin(), "x", "y").is_err());
+        assert!(import(
+            &Fixed(vec![a.clone(), a.clone()]),
+            &json!({}),
+            &pin(),
+            "x",
+            "y"
+        )
+        .is_err());
         let mut bad = a.clone();
         bad.unknown_fields = vec!["same".into(), "same".into()];
         assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "x", "y").is_err());
@@ -263,7 +327,13 @@ mod tests {
         bad.outputs = vec![json!({"name":"A","meaning":"test","width_bits":0})];
         assert!(import(&Fixed(vec![bad]), &json!({}), &pin(), "x", "y").is_err());
         assert!(import(&EightBit, &json!({"slots":[]}), &pin(), "x", "y").is_err());
-        assert!(import(&EightBit, &json!({"slots":[{"key":"api0"}]}),
-                       &pin(), "", "y").is_err());
+        assert!(import(
+            &EightBit,
+            &json!({"slots":[{"key":"api0"}]}),
+            &pin(),
+            "",
+            "y"
+        )
+        .is_err());
     }
 }
