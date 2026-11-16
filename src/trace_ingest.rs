@@ -222,23 +222,23 @@ mod tests {
         ) -> Result<(), String> {
             let code = data["device"]["code"].as_u64().ok_or("bad device event")?;
             emit(Observation {
-                    stream_id: "lane-b".into(),
-                    cpu: "cpu1".into(),
-                    sequence: 0,
-                    event: EventKind::DeviceEvent,
-                    registers: BTreeMap::new(),
-                    address: None,
-                    numeric_details: BTreeMap::from([("device_code".into(), code)]),
-                })?;
+                stream_id: "lane-b".into(),
+                cpu: "cpu1".into(),
+                sequence: 0,
+                event: EventKind::DeviceEvent,
+                registers: BTreeMap::new(),
+                address: None,
+                numeric_details: BTreeMap::from([("device_code".into(), code)]),
+            })?;
             emit(Observation {
-                    stream_id: "lane-a".into(),
-                    cpu: "cpu0".into(),
-                    sequence: 7,
-                    event: EventKind::Interrupt,
-                    registers: BTreeMap::from([("r0".into(), 0x1234)]),
-                    address: None,
-                    numeric_details: BTreeMap::new(),
-                })
+                stream_id: "lane-a".into(),
+                cpu: "cpu0".into(),
+                sequence: 7,
+                event: EventKind::Interrupt,
+                registers: BTreeMap::from([("r0".into(), 0x1234)]),
+                address: None,
+                numeric_details: BTreeMap::new(),
+            })
         }
     }
     struct Fixed(Vec<Observation>);
@@ -309,8 +309,12 @@ mod tests {
         other.cpu = "cpu1".into();
         other.stream_id = "lane-b".into();
         // Independent sequence zero for both CPU streams is valid.
-        let jsonl = normalize(&Fixed(vec![first.clone(), other.clone()]), &json!({}), &policy())
-            .unwrap();
+        let jsonl = normalize(
+            &Fixed(vec![first.clone(), other.clone()]),
+            &json!({}),
+            &policy(),
+        )
+        .unwrap();
         assert_eq!(traces::validate_jsonl(&jsonl), Ok(2));
         other.stream_id = "lane-a".into();
         other.sequence = 1; // still invalid: the shared stream has a different CPU owner
@@ -342,5 +346,4 @@ mod tests {
         assert!(normalize(&flood, &json!({}), &p).is_err());
         assert_eq!(flood.0.get(), 3);
     }
-
 }
