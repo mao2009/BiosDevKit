@@ -76,9 +76,17 @@ pub struct SourceRecord {
     pub metrics: Vec<(String, u64)>,
 }
 
+/// Produce records one at a time and stop when the sink rejects a record.
+/// Implementations must avoid unbounded intermediate buffers.
 pub trait EvidenceAdapter {
-    fn extract(&self, input: &Value) -> Result<Vec<SourceRecord>, String>;
+    fn visit(
+        &self,
+        input: &Value,
+        max_records: usize,
+        emit: &mut dyn FnMut(SourceRecord) -> Result<(), String>,
+    ) -> Result<(), String>;
 }
+pub const MAX_RECORDS: usize = 10_000;
 
 #[derive(Debug, Clone)]
 pub enum ImportedRecord {
@@ -111,7 +119,7 @@ pub fn import<A: EvidenceAdapter>(
     input: &Value,
     catalog: &[RegisteredTest],
 ) -> Result<Vec<ImportedRecord>, String> {
-    if catalog.is_empty() || catalog.len() > 10_000 {
+    if catalog.is_empty() || catalog.len() > MAX_RECORDS {
         return Err("invalid evidence catalog".into());
     }
     let mut trusted = HashMap::new();
@@ -134,15 +142,15 @@ pub fn import<A: EvidenceAdapter>(
             return Err("invalid metric registration".into());
         }
     }
-    let records = adapter
-        .extract(input)
-        .map_err(|_| "evidence adapter rejected input".to_string())?;
-    if records.is_empty() || records.len() > 10_000 {
-        return Err("invalid number of evidence records".into());
-    }
+    // A successful record requires one registered key. Stop the adapter as
+    // soon as it attempts to emit more items than the catalog can authorize.
+    let limit = catalog.len().min(MAX_RECORDS);
     let mut seen = HashSet::new();
-    let mut output = Vec::with_capacity(records.len());
-    for record in records {
+    let mut output = Vec::new();
+    let mut emit = |record: SourceRecord| -> Result<(), String> {
+        if output.len() >= limit {
+            return Err("evidence record limit exceeded".into());
+        }
         let item = trusted
             .get(record.source_key.as_str())
             .ok_or("unregistered evidence source")?;
@@ -172,7 +180,7 @@ pub fn import<A: EvidenceAdapter>(
                     .code()
                     .into(),
             });
-            continue;
+            return Ok(());
         }
         let status = match record.outcome {
             Outcome::Pass => "PASS",
@@ -203,6 +211,13 @@ pub fn import<A: EvidenceAdapter>(
             result["reason"] = json!(reason.code());
         }
         output.push(ImportedRecord::EvidenceV1(result));
+        Ok(())
+    };
+    adapter
+        .visit(input, limit, &mut emit)
+        .map_err(|_| "evidence adapter rejected input".to_string())?;
+    if output.is_empty() {
+        return Err("invalid number of evidence records".into());
     }
     Ok(output)
 }
@@ -238,30 +253,48 @@ mod tests {
     }
     struct SingleCpu;
     impl EvidenceAdapter for SingleCpu {
-        fn extract(&self, v: &Value) -> Result<Vec<SourceRecord>, String> {
+        fn visit(
+            &self,
+            v: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(SourceRecord) -> Result<(), String>,
+        ) -> Result<(), String> {
             let status = v["status"].as_str().ok_or("private bad status")?;
             let outcome = match status {
                 "ok" => Outcome::Pass,
                 "disabled" => Outcome::NotRun,
                 _ => return Err("private sensitive filename /secret/game.cue".into()),
             };
-            Ok(vec![record("single", outcome)])
+            emit(record("single", outcome))
         }
     }
     struct MultiCpu;
     impl EvidenceAdapter for MultiCpu {
-        fn extract(&self, v: &Value) -> Result<Vec<SourceRecord>, String> {
+        fn visit(
+            &self,
+            v: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(SourceRecord) -> Result<(), String>,
+        ) -> Result<(), String> {
             let count = v["summary"]["checks"].as_u64().ok_or("missing checks")?;
             let mut x = record("multi", Outcome::Fail);
             x.reason = Some(Reason::Mismatch);
             x.metrics = vec![("cycles".into(), count)];
-            Ok(vec![x])
+            emit(x)
         }
     }
     struct Fixed(Vec<SourceRecord>);
     impl EvidenceAdapter for Fixed {
-        fn extract(&self, _: &Value) -> Result<Vec<SourceRecord>, String> {
-            Ok(self.0.clone())
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(SourceRecord) -> Result<(), String>,
+        ) -> Result<(), String> {
+            for item in &self.0 {
+                emit(item.clone())?;
+            }
+            Ok(())
         }
     }
 
@@ -350,4 +383,30 @@ mod tests {
         )
         .is_err());
     }
+    struct Flood(std::cell::Cell<usize>);
+    impl EvidenceAdapter for Flood {
+        fn visit(
+            &self,
+            _: &Value,
+            _max: usize,
+            emit: &mut dyn FnMut(SourceRecord) -> Result<(), String>,
+        ) -> Result<(), String> {
+            for n in 0..100 {
+                self.0.set(n + 1);
+                emit(record(&format!("id{n}"), Outcome::Pass))?;
+            }
+            Ok(())
+        }
+    }
+    #[test]
+    fn early_backpressure_stops_unbounded_source_record_emission() {
+        let adapter = Flood(std::cell::Cell::new(0));
+        let registrations = [
+            registered("id0", RunnerScope::Synthetic),
+            registered("id1", RunnerScope::Synthetic),
+        ];
+        assert!(import(&adapter, &json!({}), &registrations).is_err());
+        assert_eq!(adapter.0.get(), 3);
+    }
+
 }
