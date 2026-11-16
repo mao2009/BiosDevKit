@@ -126,7 +126,11 @@ pub fn import<A: EvidenceAdapter>(
             return Err("invalid or duplicate evidence registration".into());
         }
         let mut names = HashSet::new();
-        if item.permitted_metrics.iter().any(|key| !token(key) || !names.insert(key)) {
+        if item
+            .permitted_metrics
+            .iter()
+            .any(|key| !token(key) || !names.insert(key))
+        {
             return Err("invalid metric registration".into());
         }
     }
@@ -162,7 +166,11 @@ pub fn import<A: EvidenceAdapter>(
             output.push(ImportedRecord::NotRun {
                 test_id: item.public_test_id.clone(),
                 platform: item.platform.clone(),
-                reason_code: record.reason.expect("checked non-PASS reason").code().into(),
+                reason_code: record
+                    .reason
+                    .expect("checked non-PASS reason")
+                    .code()
+                    .into(),
             });
             continue;
         }
@@ -220,7 +228,11 @@ mod tests {
             claimed_source_revision: "a".repeat(40),
             claimed_runner_version: "runner-v1".into(),
             outcome,
-            reason: if outcome == Outcome::Pass { None } else { Some(Reason::Disabled) },
+            reason: if outcome == Outcome::Pass {
+                None
+            } else {
+                Some(Reason::Disabled)
+            },
             metrics: vec![("checks".into(), 3)],
         }
     }
@@ -255,10 +267,18 @@ mod tests {
 
     #[test]
     fn two_dialects_use_one_core_without_raw_text() {
-        let a = import(&SingleCpu, &json!({"status":"ok"}),
-                       &[registered("single", RunnerScope::Host)]).unwrap();
-        let b = import(&MultiCpu, &json!({"summary":{"checks":7}}),
-                       &[registered("multi", RunnerScope::Emulator)]).unwrap();
+        let a = import(
+            &SingleCpu,
+            &json!({"status":"ok"}),
+            &[registered("single", RunnerScope::Host)],
+        )
+        .unwrap();
+        let b = import(
+            &MultiCpu,
+            &json!({"summary":{"checks":7}}),
+            &[registered("multi", RunnerScope::Emulator)],
+        )
+        .unwrap();
         match (&a[0], &b[0]) {
             (ImportedRecord::EvidenceV1(x), ImportedRecord::EvidenceV1(y)) => {
                 assert_eq!(x["result"], "PASS");
@@ -268,9 +288,16 @@ mod tests {
                 assert_eq!(x["observations"][1]["value"], "DECLARED_NOT_ATTESTED");
                 assert_eq!(y["observations"][2]["value"], "7");
                 assert!(crate::evidence::aggregate(&[
-                    crate::evidence::Record { status: crate::evidence::Status::Pass, reason: None },
-                    crate::evidence::Record { status: crate::evidence::Status::Fail, reason: Some("MISMATCH") },
-                ]).is_ok());
+                    crate::evidence::Record {
+                        status: crate::evidence::Status::Pass,
+                        reason: None
+                    },
+                    crate::evidence::Record {
+                        status: crate::evidence::Status::Fail,
+                        reason: Some("MISMATCH")
+                    },
+                ])
+                .is_ok());
             }
             _ => panic!("wrong output type"),
         }
@@ -278,16 +305,19 @@ mod tests {
 
     #[test]
     fn not_run_is_explicit_and_never_mapped_to_v1_skip_or_pass() {
-        let out = import(&SingleCpu, &json!({"status":"disabled"}),
-                         &[registered("single", RunnerScope::Synthetic)]).unwrap();
+        let out = import(
+            &SingleCpu,
+            &json!({"status":"disabled"}),
+            &[registered("single", RunnerScope::Synthetic)],
+        )
+        .unwrap();
         assert!(matches!(&out[0], ImportedRecord::NotRun { reason_code, .. }
                           if reason_code == "DISABLED"));
     }
     #[test]
     fn fails_closed_on_private_error_provenance_and_duplicate_input() {
         let catalog = [registered("single", RunnerScope::Hardware)];
-        let err = import(&SingleCpu, &json!({"status":"/secret/game.cue"}), &catalog)
-            .unwrap_err();
+        let err = import(&SingleCpu, &json!({"status":"/secret/game.cue"}), &catalog).unwrap_err();
         assert!(!err.contains("secret"));
         assert!(!err.contains("cue"));
         let mut wrong = record("single", Outcome::Pass);
@@ -304,12 +334,20 @@ mod tests {
     }
     #[test]
     fn rejects_unregistered_and_invalid_catalog_entries() {
-        assert!(import(&Fixed(vec![record("other", Outcome::Pass)]),
-                       &json!({}), &[registered("single", RunnerScope::Host)]).is_err());
+        assert!(import(
+            &Fixed(vec![record("other", Outcome::Pass)]),
+            &json!({}),
+            &[registered("single", RunnerScope::Host)]
+        )
+        .is_err());
         let mut bad = registered("single", RunnerScope::Host);
         bad.source_revision = "not-a-commit".into();
         assert!(import(&SingleCpu, &json!({"status":"ok"}), &[bad]).is_err());
-        assert!(import(&Fixed(vec![]), &json!({}),
-                       &[registered("single", RunnerScope::Host)]).is_err());
+        assert!(import(
+            &Fixed(vec![]),
+            &json!({}),
+            &[registered("single", RunnerScope::Host)]
+        )
+        .is_err());
     }
 }
