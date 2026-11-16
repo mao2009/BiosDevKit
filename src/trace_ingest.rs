@@ -101,7 +101,10 @@ pub fn normalize<A: TraceSourceAdapter>(
     for obs in observations {
         if !policy.streams.contains(&obs.stream_id)
             || !policy.cpus.contains(&obs.cpu)
-            || obs.registers.keys().any(|name| !policy.registers.contains(name))
+            || obs
+                .registers
+                .keys()
+                .any(|name| !policy.registers.contains(name))
             || obs
                 .numeric_details
                 .keys()
@@ -138,8 +141,7 @@ pub fn normalize<A: TraceSourceAdapter>(
     }
     let jsonl = format!("{}\n", lines.join("\n"));
     // Never forward validator diagnostics containing source-derived IDs.
-    traces::validate_jsonl(&jsonl)
-        .map_err(|_| "normalized trace failed validation".to_string())?;
+    traces::validate_jsonl(&jsonl).map_err(|_| "normalized trace failed validation".to_string())?;
     Ok(jsonl)
 }
 
@@ -243,8 +245,8 @@ mod tests {
     }
     #[test]
     fn fails_closed_for_private_adapter_errors_and_bad_policy() {
-        let err = normalize(&SingleCpu, &json!({"bad":"/private/game.cue"}), &policy())
-            .unwrap_err();
+        let err =
+            normalize(&SingleCpu, &json!({"bad":"/private/game.cue"}), &policy()).unwrap_err();
         assert_eq!(err, "trace adapter rejected input");
         assert!(!err.contains("game"));
         let mut bad = policy();
